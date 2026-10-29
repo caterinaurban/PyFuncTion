@@ -165,6 +165,7 @@ svg text { font-family: var(--font-mono); }
   <header class="bar">
     <span class="brand">PyFuncTion</span>
     <span class="status" id="status" role="status"></span>
+    <button class="btn" id="theme" type="button"></button>
   </header>
 
   <main class="grid">
@@ -281,6 +282,25 @@ function setStatus(text, busy) {
 }
 
 // ---------------------------------------------------------------- startup
+
+// light / dark background: follows the system until chosen, then remembered
+const THEME_KEY = "pyfunction-theme";
+function isDark() {
+  const t = document.documentElement.dataset.theme;
+  return t ? t === "dark" : window.matchMedia("(prefers-color-scheme: dark)").matches;
+}
+function themeLabel() {
+  $("theme").textContent = isDark() ? "☀︎ Light background" : "☾ Dark background";
+}
+function setTheme(t) {
+  document.documentElement.dataset.theme = t;
+  try { localStorage.setItem(THEME_KEY, t); } catch (e) { /* not remembered */ }
+  themeLabel();
+}
+try { const t = localStorage.getItem(THEME_KEY); if (t) document.documentElement.dataset.theme = t; } catch (e) { /* system */ }
+themeLabel();
+$("theme").onclick = () => setTheme(isDark() ? "light" : "dark");
+window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", themeLabel);
 
 function boot() {
   for (const [i, ex] of EXAMPLES.entries()) {
