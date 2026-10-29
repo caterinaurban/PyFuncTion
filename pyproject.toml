@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pyfunction"
+version = "0.1.0"
+description = "Termination analysis of numerical Python programs by abstract interpretation (Python port of FuncTion)"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.10"
+authors = [{ name = "Caterina Urban" }]
+dependencies = []
+
+[project.scripts]
+pyfunction = "pyfunction.__main__:main"
+
+[tool.setuptools]
+packages = ["pyfunction"]
