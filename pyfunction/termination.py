@@ -23,8 +23,8 @@ analysis, a decision tree in the backward analysis.
 import sys
 import time
 
-from .syntax import Assign, Assume, If, While, Return, BConst, Not, BoolOp, Compare, negate
-from .linear import Env, tighten, negate as negate_constraint, compile_compare
+from .syntax import Assign, Assume, If, While, Return, BConst, Not, BoolOp, Compare, Random, Interval, negate
+from .linear import Env, tighten, negate as negate_constraint, compile_compare, compile_aexp
 from .partition import DOMAINS, Partition
 from .functions import Affine, Ordinals, APPROXIMATION, COMPUTATIONAL
 from .decision_tree import DecisionTree
@@ -77,9 +77,14 @@ class TerminationAnalysis:
 
     def __init__(self, program, domain='boxes', ordinals=None, joinfwd=2, joinbwd=2,
                  refine=False, retrybwd=5, timeout=300.0, tracefwd=False, tracebwd=False,
-                 out=sys.stdout, record=None, seeds=()):
+                 out=sys.stdout, record=None, seeds=(), angelic=()):
         if domain not in DOMAINS:
             raise ValueError('unknown abstract domain %s' % domain)
+        for x in angelic:
+            if x in program.inputs:
+                raise ValueError('%s is a parameter: the parameters are always demonic' % x)
+            if x not in program.variables:
+                raise ValueError('%s is not a variable of the program' % x)
         self.program = program
         self.env = Env(program.variables)
         self.B = DOMAINS[domain]
@@ -97,6 +102,11 @@ class TerminationAnalysis:
         self.refine = refine      # restrict the backward analysis to the reachable states R♮
         self.seeds = seed_constraints(self.env, seeds)  # the decision trees start split on them
         self.retrybwd = retrybwd  # see the jokers in _bwd_while
+        # the variables whose non-deterministic values are picked by the
+        # program (angelic) instead of the environment (demonic), as for the
+        # trusted non-determinism of the VMCAI 2026 paper; unlike the paper,
+        # trust is declared per variable, not per expression
+        self.angelic = frozenset(angelic)
         self.timeout = timeout
         self.tracefwd = tracefwd
         self.tracebwd = tracebwd
@@ -184,6 +194,9 @@ class TerminationAnalysis:
         before s, and the trees are restricted to it."""
         D = self.D
         if isinstance(s, Assign):
+            if s.target in self.angelic and self._choice(s.value):
+                # X ← ? or X ← [lo, hi] with X angelic (option -angelic)
+                return D.bwd_assign_angelic(p, s.target, s.value, domain)
             # R#_M[[X ← e]] t = ASSIGN←_A[[X ← e]] t
             return D.bwd_assign(p, s.target, s.value, domain)
         if isinstance(s, Assume):
@@ -205,6 +218,13 @@ class TerminationAnalysis:
         if isinstance(s, While):
             return self._bwd_while(p, s)
         raise TypeError(s)
+
+    def _choice(self, e):
+        """Whether e is a choice that can be angelic: ? or [lo, hi], the
+        whole right-hand side, with linear bounds. Anything else stays
+        demonic, e.g. X ← Y + [0, 5] or X ← [0, Y * Z] (in the paper, any
+        expression with trusted non-determinism is angelic)."""
+        return isinstance(e, (Random, Interval)) and compile_aexp(self.env, e).ntemps == 1
 
     def _bwd_while(self, p, s):
         """R#_M[[while e do s done]] t = lfp F#_M

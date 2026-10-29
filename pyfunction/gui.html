@@ -195,6 +195,8 @@ or pick one of the examples above."></textarea>
           <input id="precondition" type="text" placeholder="e.g. x > 0">
           <label for="seed">seeds</label>
           <input id="seed" type="text" placeholder="e.g. x >= 0 and x - y >= 1" title="Constraints the decision trees are split on from the start: the domain widening never removes them">
+          <label for="angelic">angelic</label>
+          <input id="angelic" type="text" placeholder="e.g. d, s" title="Variables whose non-deterministic values (x = random.randint(a, b), x = input(), ...) are picked by the program instead of the environment: termination is proven if some value leads to termination. Parameters are always demonic.">
           <label for="timeout">timeout (s)</label>
           <input id="timeout" type="number" min="1" value="30">
         </div>
@@ -327,6 +329,7 @@ function loadExample(i, andRun) {
   $("refine").checked = !!o.refine;
   $("precondition").value = o.precondition || "";
   $("seed").value = o.seed || "";
+  $("angelic").value = o.angelic || "";
   if (andRun) run();
 }
 
@@ -355,7 +358,7 @@ async function run() {
   const opts = {
     domain: $("domain").value, ordinals: $("ordinals").value, joinbwd: $("joinbwd").value,
     refine: $("refine").checked, precondition: $("precondition").value.trim(), seed: $("seed").value.trim(),
-    timeout: $("timeout").value,
+    angelic: $("angelic").value.trim(), timeout: $("timeout").value,
   };
   setStatus("Analyzing…", true);
   $("run").disabled = true;
@@ -376,7 +379,8 @@ async function run() {
   setStatus("Analyzed in " + ((performance.now() - t0) / 1000).toFixed(2) + " s, " + res.events.length + " steps recorded.", false);
   const verdicts = { TRUE: "termination proven", UNKNOWN: "termination not proven", TIMEOUT: "the analysis timed out" };
   $("verdict").innerHTML = '<span class="pill ' + res.result + '">' + res.result + "</span><span>" + verdicts[res.result] +
-    (opts.precondition ? " under the precondition <code>" + esc(opts.precondition) + "</code>" : "") + "</span>" +
+    (opts.precondition ? " under the precondition <code>" + esc(opts.precondition) + "</code>" : "") +
+    (opts.angelic ? ", with angelic choices for <code>" + esc(opts.angelic) + "</code>" : "") + "</span>" +
     (res.truncated ? '<span class="hint">(only the first steps were recorded)</span>' : "") +
     (res.warnings.length ? '<div class="hint">' + res.warnings.map(esc).join("<br>") + "</div>" : "");
   setupPlot();

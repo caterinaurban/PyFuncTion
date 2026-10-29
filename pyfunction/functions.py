@@ -354,6 +354,55 @@ class Affine:
             return self.successor(fs[0])
         return self._top
 
+    def bwd_assign_angelic(self, f, x, e, Q, b, unit):
+        """The value of a leaf for an angelic choice X ← e (option -angelic,
+        see DecisionTree.bwd_assign_angelic), on the partition b before the
+        assignment, where Q = { (ρ, v) | v ∈ e(ρ), ρ[X := v] is in the
+        partition of f } (a polyhedron over the variables and v):
+
+            inf { f(ρ[X := v]) | ρ ∈ γ_D(b), (ρ, v) ∈ Q } + 1
+
+        the number of steps when the program picks its best value v. The
+        inf is computed over the rationals: it is reached at a bound of v,
+        an integer when all the bounds on v have coefficient ±1 (`unit`);
+        otherwise, or when the inf is not affine on b, the sup is used
+        instead, which is sound but coarser (e.g. f = x + 1 on x <= 5 with
+        X ← ? gives 7: the sup is only over the values that stay in the
+        partition of f, unlike in the VMCAI 2026 paper).
+        (Difference (d) in DecisionTree.bwd_assign_angelic.)"""
+        if f.kind != FUN:
+            return f
+        n = self.n
+        i = self.env.index[x]
+        # f(ρ[X := v]) - # >= 0, over the variables, #, and v
+        vec, _ = integer_vector(tuple(c if j != i else 0 for j, c in enumerate(f.coeffs))
+                                + (Fraction(-1), f.coeffs[i]), f.const)
+        qs = [c[:n] + (0,) + c[n:] for c in Q.ineqs]
+        qe = [c[:n] + (0,) + c[n:] for c in Q.eqs]
+        bs = [c[:n] + (0, 0) + c[n:] for c in b.to_poly().constraint_list()]
+        if unit:
+            # epigraph # >= f(ρ[X := v]), v projected away: the lower bounds
+            # left on # are the inf (their maximum)
+            neg = tuple(-a for a in vec)
+            P = Polyhedron.from_constraints(n + 2, qe, qs + bs + [neg]).remove_dimensions(1)
+            gs = []
+            for c in P.ineqs:
+                if c[n] > 0:
+                    k = Fraction(c[n])
+                    gs.append(self._reduce(P.eqs, Aff(FUN, tuple(-Fraction(a) / k for a in c[:n]),
+                                                      -Fraction(c[n + 1]) / k)))
+            if gs:
+                g = gs[0]
+                for h in gs[1:]:
+                    g = self.join(COMPUTATIONAL, b, g, h)
+                if g.kind == FUN:
+                    return self.successor(g)
+        # hypograph # <= f(ρ[X := v]): each upper bound left on # bounds the
+        # sup (which is their minimum)
+        P = Polyhedron.from_constraints(n + 2, qe, qs + bs + [vec]).remove_dimensions(1)
+        fs = [g for g in self._ranking_constraints(P)[0] if g is not None]
+        return self.successor(fs[0]) if fs else self._top
+
     def filter(self, f, b):
         """A test is one execution step: STEP_F."""
         return self.successor(f)
@@ -632,6 +681,23 @@ class Ordinals:
                 return Ord(f)
             return Ord(F.zero(), ff)
         return Ord(o.f)
+
+    def bwd_assign_angelic(self, o, x, e, Q, b, unit):
+        """The leaf value for an angelic choice (option -angelic). The
+        ordinals are compared from the highest power of ω: when none of the
+        coefficients of the powers of ω > 0 depends on X, the choice only
+        changes the coefficient of ω^0, and the best value of the program is
+        the one that minimizes it (F.bwd_assign_angelic); the other
+        coefficients are unchanged, as in ASSIGN←_W. Otherwise, the sup over
+        the whole range of e (ASSIGN←_W, as in the VMCAI 2026 paper), which is
+        sound but coarser."""
+        F = self.F
+        i = self.env.index[x]
+        if F.defined(o.f) and all(F.defined(y) and y.coeffs[i] == 0 for y in o.ff):
+            f = F.bwd_assign_angelic(o.f, x, e, Q, b, unit)
+            if F.defined(f):
+                return Ord(f, o.ff)
+        return self.bwd_assign(o, x, e)
 
     def filter(self, o, b):
         """STEP_W: one more step, added to the coefficient of ω^0."""

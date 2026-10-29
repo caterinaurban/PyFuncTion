@@ -35,6 +35,9 @@ Options (same names as FuncTion; `--name` also works):
     -seed "x >= 0 and x - y >= 1"      split the decision trees on these constraints from the
                                        start: the domain widening never removes them (each
                                        comparison is a seed; the option can be repeated)
+    -angelic d,s                       the non-deterministic values of these variables are
+                                       picked by the program (see Termination resilience below;
+                                       the option can be repeated)
     -timeout 300                       timeout in seconds
     -minimal                           print the analysis result only
     -time, -tracefwd, -tracebwd
@@ -55,6 +58,52 @@ Example:
 The parameters of the analyzed function are its (unknown) inputs. Variables
 that are never initialized have unknown values too.
 
+## Termination resilience
+
+By default every non-deterministic value is chosen by the environment
+(*demonic* non-determinism): termination is proven only if the program
+terminates whatever the values are. With `-angelic`, the values assigned to the
+listed variables are instead picked by the program (*angelic*
+non-determinism): it is enough that some value leads to termination. This
+follows the trusted non-determinism of the VMCAI 2026 paper on termination
+resilience, in a preliminary version:
+
+    $ cat resilient.py
+    import random
+
+    def main(x):
+        while x > 0:
+            d = random.randint(-1, 1)
+            x = x - d
+
+    $ python3 -m pyfunction resilient.py -domain octagons -minimal
+    Analysis Result: UNKNOWN
+    $ python3 -m pyfunction resilient.py -domain octagons -angelic d -minimal
+    Analysis Result: TRUE
+
+(The program terminates if it always picks `d = 1`, but not if `d` can be
+`0` or `-1` forever.)
+
+- Trust is declared per variable, not per expression as in the paper. An
+  assignment is angelic only if its target is listed and its right-hand side
+  is a whole non-deterministic value: `x = input()`, `x =
+  random.randint(a, b)` (with linear bounds), and so on. Everything else stays
+  demonic, e.g. `x = y + random.randint(0, 5)`.
+- The parameters of the analyzed function are always demonic: naming one is
+  an error.
+- Values that only approximate what the program computes (`a ** b`, calls to
+  unknown functions) are never a choice: they stay demonic even when assigned
+  to an angelic variable.
+- The angelic assignment fixes three cases where the operator of the paper is
+  unsound: it projects the whole path of each leaf instead of each decision
+  node separately, and drops a leaf when the projection is not exact over the
+  integers or cannot be represented by the abstract domain (the leaf is then
+  undefined, which is sound). The differences are listed in the docstring of
+  `DecisionTree.bwd_assign_angelic`, and `tests/angelic` has an example for
+  each.
+- The usual limits of the loop analysis remain: e.g. a loop whose step is a
+  variable (`z = z + c`) is only proven when `-refine` gives the step's value.
+
 ## Supported Python subset
 
 The frontend (`pyfunction/frontend.py`) works on the AST of the program (`ast` module):
@@ -70,7 +119,8 @@ The frontend (`pyfunction/frontend.py`) works on the AST of the program (`ast` m
   `min`, `max`, `int`
 - non-determinism: `random.randint(a, b)`, `random.randrange(a, b)`,
   `input()`, and calls to unknown functions (approximated by an arbitrary
-  integer); `assume(cond)` restricts the analyzed executions
+  integer); `assume(cond)` restricts the analyzed executions. All of them are
+  demonic, unless the variable they are assigned to is listed in `-angelic`
 
 `assert`, `raise` and `exit()` terminate the program, as does `return` in the
 analyzed function. Non-linear expressions are approximated by non-determinism,
@@ -113,17 +163,23 @@ or pick a program, analyze it, then:
   play): each statement, each iteration of the loops and each step of the
   widening, with the tree and the plot at that point.
 
+The options of the command line are in the panel below the program, including
+`-angelic` (the "angelic" field).
+
 ## Tests
 
-    python3 -m unittest discover -s tests -v
+    python3 -m unittest -v
 
 `tests/termination` contains Python versions of the C programs in
 [`tests/termination`](https://github.com/caterinaurban/function/tree/master/tests/termination)
 of FuncTion, analyzed with the options used in its `termination.sh`
 (`# expected:` header line); `tests/python` contains programs using
 Python-specific constructs. `tests/issues` collects problems that have been
-fixed: each program comes with a `.txt` file describing the issue. The test
-suite and the examples of the graphical interface include all three folders.
+fixed: each program comes with a `.txt` file describing the issue.
+`tests/angelic` contains programs for `-angelic`, in particular the cases
+where the operator of the VMCAI 2026 paper is unsound (the comment at the top of
+each file explains it). The test suite and the examples of the graphical
+interface include all four folders.
 
 See `NOTES.md` for the differences with the OCaml version, and for per-file
 notes with suggestions for improving the analysis.

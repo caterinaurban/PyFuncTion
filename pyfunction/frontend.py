@@ -192,6 +192,14 @@ class Frontend:
         self.counter += 1
         return '%s#%d' % (base, self.counter)
 
+    def unknown(self, pre):
+        """An unknown value that over-approximates what the program computes
+        (e.g. x ** y), as opposed to a choice (input(), random.randint(...)).
+        It goes through a fresh tmp#k, which can never be named by -angelic,
+        so that it is always treated demonically."""
+        t = self.fresh()
+        return list(pre) + [Assign(t, Random())], Var(t)
+
     @staticmethod
     def _params(fdef):
         a = fdef.args
@@ -485,7 +493,7 @@ class Frontend:
                 if isinstance(e.op, ast.Pow):
                     if isinstance(l, Const) and isinstance(r, Const) and r.value >= 0:
                         return pre1 + pre2, Const(l.value ** r.value)
-                    return pre1 + pre2, Random()
+                    return self.unknown(pre1 + pre2)
                 if isinstance(e.op, ast.Div):
                     raise UnsupportedError('true division / is not supported (use //)', e)
                 raise UnsupportedError('unsupported operator %s' % type(e.op).__name__, e)
@@ -498,6 +506,8 @@ class Frontend:
                 check = If(Compare('>', r, Const(0)), [pos],
                            [If(Compare('<', r, Const(0)), [neg], [Return()])])
                 return pre1 + pre2 + [check], Var(t)
+            if op in ('//', '%') and isinstance(l, Const) and r == Const(0):
+                return self.unknown(pre1 + pre2)
             return pre1 + pre2, self._binop(op, l, r)
         if isinstance(e, ast.BoolOp):
             op = 'and' if isinstance(e.op, ast.And) else 'or'
@@ -582,6 +592,7 @@ class Frontend:
         if name not in _NONDET_FUNCS:
             self.warnings.append('line %d: call to unknown function %s approximated by a '
                                  'non-deterministic value (and assumed to terminate)' % (e.lineno, name or '?'))
+            return self.unknown(pre)
         return pre, Random()
 
     def _inline(self, e, ctx):

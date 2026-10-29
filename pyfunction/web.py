@@ -117,6 +117,7 @@ def _options(opts):
         if opts.get(k) not in (None, ''):
             o[k] = int(opts[k])
     o['refine'] = bool(opts.get('refine'))
+    o['angelic'] = [x for x in re.split(r'[\s,]+', opts.get('angelic') or '') if x]
     o['timeout'] = float(opts.get('timeout') or 30)
     return o
 
@@ -262,7 +263,7 @@ def page():
     with open(os.path.join(here, 'gui.html'), encoding='utf-8') as f:
         text = f.read()
     examples = []
-    for d in ('termination', 'python', 'issues'):
+    for d in ('termination', 'python', 'issues', 'angelic'):
         for p in sorted(glob.glob(os.path.join(root, 'tests', d, '*.py'))):
             with open(p, encoding='utf-8') as f:
                 source = f.read()

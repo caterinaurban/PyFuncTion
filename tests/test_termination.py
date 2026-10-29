@@ -5,7 +5,7 @@ the `# expected:` header line).
 Termination is expected to be proven, unless a `# result: UNKNOWN` line says
 otherwise.
 
-    python3 -m unittest discover -s tests -v
+    python3 -m unittest -v
 """
 
 import glob
@@ -32,7 +32,9 @@ def options(source):
                     i += 1
                 else:
                     v = args[i + 1]
-                    opts[a[1:]] = v if a in ('-domain', '-precondition', '-seed') else int(v)
+                    if a == '-angelic':
+                        v = v.split(',')
+                    opts[a[1:]] = v if a in ('-domain', '-precondition', '-seed', '-angelic') else int(v)
                     i += 2
     return opts
 
@@ -66,7 +68,7 @@ def _make(path):
     return test
 
 
-for _d in ('termination', 'python', 'issues'):
+for _d in ('termination', 'python', 'issues', 'angelic'):
     for _p in sorted(glob.glob(os.path.join(HERE, _d, '*.py'))):
         _n = 'test_%s_%s' % (_d, os.path.splitext(os.path.basename(_p))[0])
         setattr(TerminationTests, _n, _make(_p))

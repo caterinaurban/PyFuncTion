@@ -38,6 +38,10 @@ def main(argv=None):
     ap.add_argument('-seed', '--seed', action='append', default=[],
                     help='constraints to split the decision trees on from the start, e.g. "x >= 0 and x - y >= 1" '
                     '(each comparison is a seed; the domain widening never removes them; can be repeated)')
+    ap.add_argument('-angelic', '--angelic', action='append', default=[], metavar='X,Y',
+                    help='variables whose non-deterministic values (x = random.randint(a, b), x = input(), ...) '
+                    'are picked by the program instead of the environment: termination is then proven '
+                    'if some value leads to termination (parameters are always demonic; can be repeated)')
     ap.add_argument('-timeout', '--timeout', type=float, default=300.0, help='timeout in seconds')
     ap.add_argument('-minimal', '--minimal', action='store_true', help='print the analysis result only')
     ap.add_argument('-time', '--time', action='store_true', help='print the analysis time')
@@ -64,7 +68,8 @@ def main(argv=None):
         analysis = TerminationAnalysis(program, domain=args.domain, ordinals=args.ordinals,
                                        joinfwd=args.joinfwd, joinbwd=args.joinbwd, refine=args.refine,
                                        retrybwd=args.retrybwd, timeout=args.timeout,
-                                       tracefwd=args.tracefwd, tracebwd=args.tracebwd, out=out, seeds=seeds)
+                                       tracefwd=args.tracefwd, tracebwd=args.tracebwd, out=out, seeds=seeds,
+                                       angelic=[x for a in args.angelic for x in a.split(',') if x])
     except ValueError as e:  # e.g. a non-linear seed
         print('Unsupported option: %s' % e, file=sys.stderr)
         return 2

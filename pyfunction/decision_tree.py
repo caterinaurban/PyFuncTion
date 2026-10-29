@@ -37,7 +37,7 @@ Implementation notes:
     nc ≤_C c (both are kept so that ¬c is not recomputed).
 """
 
-from .linear import negate, is_unsat, similar, mentions, constraint_str
+from .linear import negate, is_unsat, similar, mentions, constraint_str, compile_aexp
 from .functions import APPROXIMATION, COMPUTATIONAL
 from .syntax import BConst, Maybe, Not, BoolOp, Compare, negate as negate_bexp
 
@@ -909,6 +909,145 @@ class DecisionTree:
             return merge(self.sort_tree(build(ll, cc)), self.sort_tree(build(rr, ncc)), cs)
 
         return DT(pre, self.sort_tree(aux(t.tree, [])))
+
+    def bwd_assign_angelic(self, t, x, e, domain=None):
+        """The backward assignment ASSIGN←_A[[X ← e]] for an angelic choice
+        (option -angelic): e is ? or [lo, hi], X is declared angelic, and the
+        value of e is picked by the program instead of the environment. The
+        result is defined where SOME value of e leads to a state where t is
+        defined (bwd_assign requires ALL of them).
+
+        For each defined leaf f, on the partition P along its path (with
+        -refine, restricted to the reachable states after the assignment):
+
+          1. Q = { (ρ, v) | v ∈ e(ρ), ρ[X := v] ∈ P }: the pre-image of P,
+             keeping the value v of e as an extra dimension;
+          2. the leaf can be reached from the states in ∃v. Q (the
+             projection of v).
+
+        The result is split on these projections, and is defined where at
+        least one leaf can be reached (resilience join: a defined leaf wins
+        over an undefined one). On each part R of the result, the value is
+        the least of the values of the leaves reachable from R, where the
+        value of f on R is inf { f(ρ[X := v]) | ρ ∈ R, (ρ, v) ∈ Q } + 1
+        (see Affine.bwd_assign_angelic).
+
+        Differences with the trusted assignment (Algorithm 1) of the
+        VMCAI 2026 paper:
+          (a) the whole path P is projected, instead of each decision node
+              separately, and FILL_T is not needed: projecting the nodes one
+              by one loses their correlations, which the resilience join
+              turns into unsoundness. E.g. NODE{x - z <= 0}: (NODE{x + y >= 0}:
+              f; ⊥); ⊥ with X = x: both nodes project to true, while the
+              result is only defined where y + z >= 0;
+          (b) the projection is computed over the rationals, which
+              over-approximates the projection over the integers (from
+              y == 2x, projecting x gives every y, but odd y have no integer
+              x): this is unsound for an angelic choice, so the leaf is
+              dropped unless the projection is exact, i.e., unless all the
+              lower bounds or all the upper bounds on v have coefficient 1
+              (always the case with boxes and octagons);
+          (c) the leaf is also dropped unless the partition domain represents
+              ∃v. Q exactly: boxes and octagons over-approximate relational
+              constraints, which is again unsound for an angelic choice;
+          (d) the leaf values are computed on each part R of the result,
+              as the least number of steps the program can reach from R
+              (the inf over the values v, exact over the integers when all
+              the bounds on v have coefficient 1, the sup otherwise): a value
+              computed on the whole projection of a leaf is not affine in
+              general (e.g. max(3x - 1, 8) on x >= 1);
+          (e) where several leaves overlap, the program picks the best of
+              them: the smaller value is kept if one of them is smaller
+              everywhere on the overlap, either one otherwise (both are
+              upper bounds, so both are sound);
+          (f) the program never picks a value leading to a NIL leaf (no
+              information, e.g. a failed assume).
+        Dropping a leaf only makes the result undefined in more states, which
+        is sound."""
+        B, F, env = self.B, self.F, self.env
+        pre = domain
+        post = t.domain
+        if t.tree is None:
+            return DT(pre, None)
+        comp = compile_aexp(env, e)
+        assert comp.ntemps == 1, 'not an angelic choice'
+        i, n = env.index[x], env.n
+        none = Leaf(())  # no leaf can be reached
+        reached = []  # the reachable leaves: (f, Q, all bounds on v have coefficient ±1)
+        trees = []
+        top = False  # undefined because of a lack of precision?
+
+        def exact(Q):
+            # every integer ρ in ∃v. Q has an integer v such that (ρ, v) ∈ Q:
+            # v = max of its lower bounds if they all have coefficient 1 (or
+            # min of its upper bounds), or v is fixed by an equality with
+            # coefficient 1
+            if any(c[n] for c in Q.eqs):
+                return any(abs(c[n]) == 1 for c in Q.eqs)
+            return (all(c[n] == 1 for c in Q.ineqs if c[n] > 0)
+                    or all(c[n] == -1 for c in Q.ineqs if c[n] < 0))
+
+        def chain(cs, k):
+            # the tree where the leaf k is reachable on the conjunction of cs
+            t = Leaf((k,))
+            for c in cs:
+                nc = negate(c)
+                t = Node(c, nc, t, none) if nc <= c else Node(nc, c, none, t)
+            return self.sort_tree(t)
+
+        def leaves(t, cs):
+            nonlocal top
+            if t is None:  # (f)
+                return
+            if isinstance(t, Node):
+                leaves(t.l, [t.c] + cs)
+                leaves(t.r, [t.nc] + cs)
+                return
+            b = self.dom(cs, post)
+            if b.is_bot():
+                return
+            if not F.defined(t.f):
+                top = top or F.is_top(t.f)
+                return
+            Q = b.to_poly().add_dimensions(1).substitute(i, comp.expr).meet_constraints((), comp.sides)
+            if Q.empty or not exact(Q):  # (b)
+                return
+            proj = Q.remove_dimensions(1)
+            r = B.from_poly(env, proj)
+            if r.is_bot() or not r.to_poly().is_leq(proj):  # (c)
+                return
+            unit = all(abs(c[n]) <= 1 for c in Q.eqs + Q.ineqs)
+            trees.append(chain(r.constraints(), len(reached)))
+            reached.append((t.f, Q, unit))
+
+        def f_bot(cs, ks):
+            return Leaf(ks)
+
+        def f_leaf(cs, ks1, ks2):
+            return Leaf(ks1 + ks2)
+
+        undefined = F.top() if top else F.bot()
+
+        def values(t, cs):
+            # the value on each part of the result (d), (e)
+            if t is None:
+                return None
+            if isinstance(t, Node):
+                return Node(t.c, t.nc, values(t.l, [t.c] + cs), values(t.r, [t.nc] + cs))
+            b = self.dom(cs, pre)
+            best = undefined
+            for k in t.f:
+                f, Q, unit = reached[k]
+                g = F.bwd_assign_angelic(f, x, e, Q, b, unit)
+                if F.defined(g) and (not F.defined(best) or F.is_leq(COMPUTATIONAL, b, g, best)):
+                    best = g
+            return Leaf(best)
+
+        leaves(t.tree, [])
+        r = none
+        for u in trees:
+            r = self._join_helper(f_bot, f_bot, f_leaf, r, u)
+        return DT(pre, values(r, []))
 
     def filter(self, t, e, domain=None):
         """The test FILTER_A[[e]]:
