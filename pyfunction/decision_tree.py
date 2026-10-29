@@ -93,6 +93,7 @@ class DecisionTree:
         self.env = env
         self.retrybwd = retrybwd
         self.trace = trace
+        self.record = None  # record(kind, tree): the steps of the widening (see web.py)
 
     # helpers
 
@@ -562,10 +563,12 @@ class DecisionTree:
         corrected by the next iterations. Steps (t1 is the previous iterate,
         t2 the current one):
 
-          1. widen_right: the leaves where the value of the ranking function
-             is not stable (the old value is not below the new one, in the
-             computational order) are set to ⊤_F (wrong value prediction,
-             cases B and C);
+          1. widen_right: the leaves where the ranking function is not
+             stable (the old leaf is not below the new one, in the
+             computational order) are set to ⊤_F. This is the check for
+             case A (wrong domain prediction: a defined leaf f became ⊥_F,
+             and f ⋢_F ⊥_F) and for cases B and C (wrong value prediction:
+             the value decreased somewhere);
           2. left_unification: domain widening, the structure of t1 is
              forced on t2;
           3. tree unification of t1 and t2;
@@ -575,9 +578,48 @@ class DecisionTree:
              the extrapolation operator ▾_F (functions F.extend).
         """
         domain = d1.domain
-        F = self.F
         t1, t2 = d1.tree, d2.tree
-        retry = self.retrybwd
+
+        def ts(t):
+            return self.tree_str(t)
+
+        if self.trace:
+            self.trace('WIDENING\nt1: %s\n\nt2: %s\n' % (ts(t1), ts(t2)))
+        rec = self.record
+        if rec:
+            rec('widen_t1', DT(domain, t1))
+            rec('widen_t2', DT(domain, t2))
+        t2 = self.widen_right(t1, t2, domain)
+        if self.trace:
+            self.trace('\nt2[widen_right]: %s\n' % ts(t2))
+        if rec:
+            rec('widen_right', DT(domain, t2))
+        t2 = self.left_unification(t1, t2, domain)
+        if self.trace:
+            self.trace('\nt2[left_unification]: %s\n' % ts(t2))
+        if rec:
+            rec('left_unification', DT(domain, t2))
+        t1, t2 = self.unify(t1, t2)
+        if self.trace:
+            self.trace('\nt1[tree_unification]: %s\n\nt2[tree_unification]: %s\n' % (ts(t1), ts(t2)))
+        t2 = self.widen_up(t1, t2, domain, jokers)
+        if self.trace:
+            self.trace('\nt2[widen_up]: %s\n' % ts(t2))
+        if rec:
+            rec('widen_up', DT(domain, t2))
+        r = DT(domain, self.widen_leaves(t1, t2, domain))
+        if rec:
+            rec('widen_leaves', r)
+        return r
+
+    def widen_right(self, t1, t2, domain=None):
+        """Step 1 of the widening, check for cases A, B and C: the leaves of
+        t2 that are not above the corresponding leaves of t1 in the
+        computational order are set to ⊤_F. Since ⊥_F is the least element
+        of ⊑_F, this catches both a defined leaf that became ⊥_F (case A)
+        and a defined value that decreased (cases B and C). Same traversal as
+        tree unification, adding the nodes of t1 to t2."""
+        F = self.F
 
         def widen_right(t1, t2, cs):
             # step 1 (same traversal as tree unification, adding the nodes of t1 to t2)
@@ -598,8 +640,15 @@ class DecisionTree:
                 return Node(t2.c, t2.nc, widen_right(t1, t2.l, [t2.c] + cs), widen_right(t1, t2.r, [t2.nc] + cs))
             return t2
 
+        return widen_right(t1, t2, [])
+
+    def widen_up(self, t1, t2, domain=None, jokers=0):
+        """Step 4 of the widening: the leaves of the (unified) trees t1 and t2
+        are widened with ▿_F (the jokers delay the widening of ordinals)."""
+        F = self.F
+        retry = self.retrybwd
+
         def widen_up(t1, t2, cs):
-            # step 4: leaf-wise widening (the jokers delay the widening of ordinals)
             if t1 is None and t2 is None:
                 return None
             if isinstance(t1, Leaf) and isinstance(t2, Leaf):
@@ -620,10 +669,18 @@ class DecisionTree:
                 return Node(t2.c, t2.nc, widen_up(t1, t2.l, [t2.c] + cs), widen_up(t1, t2.r, [t2.nc] + cs))
             return None
 
+        return widen_up(t1, t2, [])
+
+    def widen_leaves(self, t1, t2, domain=None):
+        """Step 5 of the widening, value widening: each leaf of t2 that
+        changed with respect to the (unified) tree t1 is extrapolated with
+        respect to its adjacent leaves in t1, with ▾_F (F.extend)."""
+        F = self.F
+
         def widen_leaves(t1, t2):
-            # step 5: value widening. A path in the tree is encoded as a list
-            # with one entry per label of t2 (in increasing order): 1 = the
-            # constraint holds, 2 = its negation holds, 0 = not tested.
+            # a path in the tree is encoded as a list with one entry per
+            # label of t2 (in increasing order): 1 = the constraint holds,
+            # 2 = its negation holds, 0 = not tested
             prev = t1
             lbl = [p for _, p in sorted(self.labels(t2).items())]
 
@@ -720,24 +777,7 @@ class DecisionTree:
 
             return aux([], lbl, t1, t2, [])
 
-        def ts(t):
-            return self.tree_str(t)
-
-        if self.trace:
-            self.trace('WIDENING\nt1: %s\n\nt2: %s\n' % (ts(t1), ts(t2)))
-        t2 = widen_right(t1, t2, [])
-        if self.trace:
-            self.trace('\nt2[widen_right]: %s\n' % ts(t2))
-        t2 = self.left_unification(t1, t2, domain)
-        if self.trace:
-            self.trace('\nt2[left_unification]: %s\n' % ts(t2))
-        t1, t2 = self.unify(t1, t2)
-        if self.trace:
-            self.trace('\nt1[tree_unification]: %s\n\nt2[tree_unification]: %s\n' % (ts(t1), ts(t2)))
-        t2 = widen_up(t1, t2, [])
-        if self.trace:
-            self.trace('\nt2[widen_up]: %s\n' % ts(t2))
-        return DT(domain, widen_leaves(t1, t2))
+        return widen_leaves(t1, t2)
 
     # transfer functions
 
@@ -869,9 +909,38 @@ class DecisionTree:
 
         Conjunctions and disjunctions are handled with the meet ⋏_A and the
         approximation join ⋎_A of the filtered trees."""
-        B, F, env = self.B, self.F, self.env
+        F = self.F
         pre = domain
         post = t.domain
+
+        def step(f):
+            return F.filter(f, e)
+
+        if isinstance(e, Maybe) or (isinstance(e, BConst) and e.value):
+            return DT(pre, self.prune(t.tree, [], pre, step))
+        if isinstance(e, BConst):
+            return DT(pre, None)
+        if isinstance(e, Not):
+            return self.filter(t, negate_bexp(e.expr), pre)
+        if isinstance(e, BoolOp):
+            t1 = self.filter(t, e.left, pre)
+            t2 = self.filter(t, e.right, pre)
+            if e.op == 'and':
+                return self.meet(APPROXIMATION, t1, t2)
+            return self.join(APPROXIMATION, t1, t2)
+        if isinstance(e, Compare):
+            bp = self.inner([]) if post is None else self.inner([]).meet(post)
+            bs = [(c, negate(c)) for c in bp.filter(e).constraints()]
+            bs.sort(key=lambda p: lkey(*p))
+            return DT(pre, self.prune(t.tree, bs, pre, step))
+        raise TypeError(e)
+
+    def prune(self, t, bs, domain=None, leaf=None):
+        """Tree pruning: adds the set J = bs of linear constraints (pairs
+        (c, ¬c), sorted with respect to ≤_C) to the tree t; the parts of the
+        tree where J does not hold become NIL. The function `leaf` is applied
+        to the leaves that are kept (STEP_F for FILTER_A)."""
+        pre = domain
 
         def split(t, bs, cs, bcs):
             # case 2 of tree pruning: the root c of t comes before min J
@@ -896,7 +965,7 @@ class DecisionTree:
                 if t is None:
                     return None
                 if isinstance(t, Leaf):
-                    return Leaf(F.filter(t.f, e))
+                    return t if leaf is None else Leaf(leaf(t.f))
                 return split(t, bs, cs, bcs)
             x, nx = bs[0]  # min J
             xs = bs[1:]
@@ -922,24 +991,7 @@ class DecisionTree:
             r = aux(t, xs, [x] + cs)
             return None if r is None else Node(nx, x, None, r)
 
-        if isinstance(e, Maybe) or (isinstance(e, BConst) and e.value):
-            return DT(pre, aux(t.tree, [], []))
-        if isinstance(e, BConst):
-            return DT(pre, None)
-        if isinstance(e, Not):
-            return self.filter(t, negate_bexp(e.expr), pre)
-        if isinstance(e, BoolOp):
-            t1 = self.filter(t, e.left, pre)
-            t2 = self.filter(t, e.right, pre)
-            if e.op == 'and':
-                return self.meet(APPROXIMATION, t1, t2)
-            return self.join(APPROXIMATION, t1, t2)
-        if isinstance(e, Compare):
-            bp = self.inner([]) if post is None else self.inner([]).meet(post)
-            bs = [(c, negate(c)) for c in bp.filter(e).constraints()]
-            bs.sort(key=lambda p: lkey(*p))
-            return DT(pre, aux(t.tree, bs, []))
-        raise TypeError(e)
+        return aux(t, bs, [])
 
     def defined(self, t, condition=None):
         """Whether the ranking function is defined on all the states that

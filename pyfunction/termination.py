@@ -48,7 +48,7 @@ class TerminationAnalysis:
 
     def __init__(self, program, domain='boxes', ordinals=None, joinfwd=2, joinbwd=2,
                  refine=False, retrybwd=5, timeout=300.0, tracefwd=False, tracebwd=False,
-                 out=sys.stdout):
+                 out=sys.stdout, record=None):
         if domain not in DOMAINS:
             raise ValueError('unknown abstract domain %s' % domain)
         self.program = program
@@ -70,6 +70,11 @@ class TerminationAnalysis:
         self.timeout = timeout
         self.tracefwd = tracefwd
         self.tracebwd = tracebwd
+        # record(kind, label, tree, **info): called at each step of the
+        # backward analysis, e.g. to replay it step by step (see web.py)
+        self.record = record
+        if record is not None:
+            self.D.record = lambda kind, t: record(kind, None, t)
         self.fwd = {}  # label -> element of D (the forward invariants R♮)
         self.bwd = {}  # label -> decision tree (the ranking functions R#_M)
         self.start = 0.0
@@ -188,11 +193,19 @@ class TerminationAnalysis:
         a = self.fwd[l]  # the loop invariant R♮ from the forward analysis
         dm = a if self.refine else None
         p1 = D.filter(p, negate(s.cond), dm)  # FILTER_A[[not e]](t): exiting the loop
+        if self.record:
+            self.record('exit', l, p1)
         i = D.bot(dm)
+        if self.record:
+            self.record('iteration', l, i, n=1)
         p2 = D.filter(self.bwd_blk(i, s.body), s.cond, dm)  # FILTER_A[[e]](R#_M[[s]] i)
         n = 1
         while True:
+            if self.record:
+                self.record('body', l, p2, n=n)
             i1 = D.join(APPROXIMATION, p1, p2)  # F#_M(i)
+            if self.record:
+                self.record('join', l, i1, n=n)
             if self.tracebwd:
                 self._trace('### %s:%d ###:\np1: %s\ni: %s\np2: %s\ni\': %s\n' % (
                     self._lbl(l), n, D.to_str(p1), D.to_str(i), D.to_str(p2), D.to_str(i1)))
@@ -205,12 +218,16 @@ class TerminationAnalysis:
                 if D.is_leq(APPROXIMATION, i1, i):
                     if self.tracebwd:
                         self._trace('### %s:FIXPOINT ###:\ni: %s\n' % (self._lbl(l), D.to_str(i)))
+                    if self.record:
+                        self.record('fixpoint', l, i, n=n)
                     break
                 i2 = i1 if n <= self.joinbwd else D.widen(i, i1, jokers)
             else:
                 i2 = i1 if n <= self.joinbwd else D.widen(i, D.join(COMPUTATIONAL, i, i1), jokers)
             if self.tracebwd:
                 self._trace('i\'\': %s\n' % D.to_str(i2))
+            if self.record:
+                self.record('iteration', l, i2, n=n + 1, widened=n > self.joinbwd)
             p2 = D.filter(self.bwd_blk(i2, s.body), s.cond, dm)
             i = i2
             n += 1
@@ -226,6 +243,8 @@ class TerminationAnalysis:
             p = D.refine(p, a)
         if self.tracebwd:
             self._trace('### %s ###:\n%s\n' % (self._lbl(b.end), D.to_str(p)))
+        if self.record:
+            self.record('label', b.end, p)
         self.bwd[b.end] = p
         for l, s in reversed(b.stmts):
             if time.time() - self.start > self.timeout:
@@ -236,6 +255,8 @@ class TerminationAnalysis:
                 p = D.refine(p, a)
             if self.tracebwd:
                 self._trace('### %s ###:\n%s\n' % (self._lbl(l), D.to_str(p)))
+            if self.record:
+                self.record('label', l, p, stmt=s)
             self.bwd[l] = p
         return p
 

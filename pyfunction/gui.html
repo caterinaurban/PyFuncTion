@@ -1,0 +1,825 @@
+<title>PyFuncTion</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=Spectral:ital,wght@1,600&display=swap">
+<style>
+/* Layout: a three-pane workbench (program | labeled program + replay | tree + plot),
+   stacking to one column on small screens. Ink-blue neutrals, mono for the domain's notation. */
+:root {
+  --bg: #f3f5f8;
+  --panel: #ffffff;
+  --ink: #18202c;
+  --muted: #5b6676;
+  --line: #d6dce5;
+  --soft: #e9edf3;
+  --accent: #2c5aa0;
+  --accent-ink: #ffffff;
+  --accent-soft: #dfe8f6;
+  --ok: #217a45; --ok-soft: #dcf0e3;
+  --warn: #9a6400; --warn-soft: #f7ebd0;
+  --bad: #b23a3a; --bad-soft: #f6dddd;
+  --bot: #8c95a3;
+  --top: #c98a12;
+  --ordc: #7a55b8;
+  --c1: #3b7bd4; --c2: #2a9d7c; --c3: #d1683a; --c4: #b54d8f;
+  --c5: #6d8a1f; --c6: #8a63d2; --c7: #c4952a; --c8: #2f8fb0;
+  --font-ui: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --font-brand: "Spectral", Georgia, "Times New Roman", serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #11151c; --panel: #181e27; --ink: #e3e8ef; --muted: #98a3b3; --line: #2c3542; --soft: #222a35;
+    --accent: #7ea8ec; --accent-ink: #0f1520; --accent-soft: #233552;
+    --ok: #6fcf97; --ok-soft: #173826; --warn: #e3b55a; --warn-soft: #3a2d12; --bad: #ef8a8a; --bad-soft: #3d1d1d;
+    --bot: #6f7988; --top: #d9a13a; --ordc: #a98ae0;
+    --c1: #6aa2ee; --c2: #4cc3a0; --c3: #ec8a5c; --c4: #dc78b6; --c5: #9fbf45; --c6: #a988ee; --c7: #e2b552; --c8: #57b6d6;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #11151c; --panel: #181e27; --ink: #e3e8ef; --muted: #98a3b3; --line: #2c3542; --soft: #222a35;
+  --accent: #7ea8ec; --accent-ink: #0f1520; --accent-soft: #233552;
+  --ok: #6fcf97; --ok-soft: #173826; --warn: #e3b55a; --warn-soft: #3a2d12; --bad: #ef8a8a; --bad-soft: #3d1d1d;
+  --bot: #6f7988; --top: #d9a13a; --ordc: #a98ae0;
+  --c1: #6aa2ee; --c2: #4cc3a0; --c3: #ec8a5c; --c4: #dc78b6; --c5: #9fbf45; --c6: #a988ee; --c7: #e2b552; --c8: #57b6d6;
+  color-scheme: dark;
+}
+html, body { height: 100%; }
+body { background: var(--bg); color: var(--ink); font: 14px/1.45 var(--font-ui); }
+* { box-sizing: border-box; }
+button, input, select, textarea { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.app { height: 100%; display: flex; flex-direction: column; gap: 12px;
+  padding-block: 12px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.bar { display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap; }
+.brand { font: italic 600 26px/1 var(--font-brand); letter-spacing: 0.01em; }
+.status { margin-left: auto; color: var(--muted); font-size: 13px; }
+.status.busy::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+  background: var(--accent); margin-right: 8px; animation: pulse 1s infinite alternate; }
+@keyframes pulse { from { opacity: 0.25; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .status.busy::before { animation: none; } }
+
+.grid { flex: 1; min-height: 0; display: grid; gap: 12px;
+  grid-template-columns: minmax(260px, 0.9fr) minmax(280px, 1fr) minmax(0, 2fr); }
+.pane { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; min-width: 0; min-height: 0;
+  display: flex; flex-direction: column; overflow: hidden; }
+.pane-head { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.pane-head h2 { margin: 0; font-size: 12px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.pane-body { padding: 12px; overflow: auto; min-height: 0; flex: 1; display: flex; flex-direction: column; gap: 12px; }
+.view-pane .pane-body > * { flex-shrink: 0; }
+
+/* editor */
+#source { flex: 1; min-height: 220px; width: 100%; resize: none; border: 1px solid var(--line); border-radius: 4px;
+  background: var(--bg); padding: 10px; font: 13px/1.5 var(--font-mono); tab-size: 4; white-space: pre; overflow: auto; }
+#example { flex: 1; min-width: 0; padding: 4px 6px; border: 1px solid var(--line); border-radius: 4px; background: var(--panel); }
+.opts { display: grid; grid-template-columns: auto 1fr; gap: 6px 10px; align-items: center; font-size: 13px; }
+.opts label { color: var(--muted); }
+.opts input[type=text], .opts input[type=number], .opts select { width: 100%; padding: 3px 6px; border: 1px solid var(--line);
+  border-radius: 4px; background: var(--panel); }
+.opts input[type=text] { font-family: var(--font-mono); font-size: 12px; }
+.run-row { display: flex; align-items: center; gap: 10px; }
+.btn { border: 1px solid var(--line); background: var(--panel); border-radius: 4px; padding: 4px 10px; cursor: pointer; }
+.btn:hover { background: var(--soft); }
+.btn:disabled { opacity: 0.5; cursor: default; }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; padding: 6px 16px; }
+.btn.primary:hover { filter: brightness(1.08); }
+.hint { color: var(--muted); font-size: 12px; }
+
+/* result + labeled program */
+.verdict { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.pill { display: inline-block; padding: 2px 10px; border-radius: 999px; font-weight: 600; font-size: 12px; letter-spacing: 0.04em; }
+.pill.TRUE { background: var(--ok-soft); color: var(--ok); }
+.pill.UNKNOWN { background: var(--warn-soft); color: var(--warn); }
+.pill.TIMEOUT, .pill.ERROR { background: var(--bad-soft); color: var(--bad); }
+.error { color: var(--bad); white-space: pre-wrap; font-family: var(--font-mono); font-size: 12px; }
+#program { margin: 0; font: 13px/1.6 var(--font-mono); overflow-x: auto; }
+#program .ln { display: block; padding: 0 6px; border-radius: 3px; white-space: pre; }
+#program .ln.cur { background: var(--accent-soft); }
+.lab { cursor: pointer; color: var(--accent); border-radius: 3px; }
+.lab:hover { text-decoration: underline; }
+.lab.sel { background: var(--accent); color: var(--accent-ink); }
+h3 { margin: 0; font-size: 12px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+
+/* replay */
+.stepper { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.stepper .btn { padding: 2px 8px; font-family: var(--font-mono); }
+#slider { flex: 1; min-width: 80px; accent-color: var(--accent); }
+#stepno { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 12px; min-width: 70px; text-align: right; }
+#events { list-style: none; margin: 0; padding: 0; font-size: 12.5px; overflow: auto; min-height: 120px; flex: 1;
+  border: 1px solid var(--line); border-radius: 4px; }
+#events li { padding: 3px 8px; cursor: pointer; border-bottom: 1px solid var(--soft); font-family: var(--font-mono); white-space: nowrap; }
+#events li:hover { background: var(--soft); }
+#events li.cur { background: var(--accent-soft); }
+#events li .n { color: var(--muted); display: inline-block; min-width: 3.2em; font-variant-numeric: tabular-nums; }
+#events li.k-fixpoint { color: var(--ok); font-weight: 600; }
+#events li.k-widen { color: var(--muted); }
+#events li.k-iteration { font-weight: 600; }
+
+/* view */
+.view-title { font-family: var(--font-mono); font-size: 14px; font-weight: 600; }
+.view-ctx { color: var(--muted); font-size: 12px; }
+.fwd { font-size: 12px; color: var(--muted); }
+.fwd code { font-family: var(--font-mono); color: var(--ink); }
+.figure { border: 1px solid var(--line); border-radius: 4px; overflow: auto; background: var(--bg); }
+.legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--muted); align-items: center; }
+.sw { display: inline-block; width: 12px; height: 12px; border-radius: 2px; vertical-align: -2px; margin-right: 4px; }
+.plot-controls { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; font-size: 12.5px; }
+.plot-controls label { color: var(--muted); }
+.plot-controls input, .plot-controls select { padding: 2px 4px; border: 1px solid var(--line); border-radius: 4px; background: var(--panel); }
+.plot-controls input[type=number] { width: 4.5em; font-variant-numeric: tabular-nums; }
+.plot-wrap { position: relative; }
+#plot { display: block; width: 100%; height: auto; }
+#tooltip { position: absolute; pointer-events: none; background: var(--panel); border: 1px solid var(--line); border-radius: 4px;
+  padding: 6px 8px; font: 12px/1.4 var(--font-mono); box-shadow: 0 2px 8px rgba(0,0,0,0.15); max-width: 320px; }
+table.leaves { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+table.leaves th { text-align: left; color: var(--muted); font-weight: 500; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase;
+  border-bottom: 1px solid var(--line); padding: 4px 6px; }
+table.leaves td { border-bottom: 1px solid var(--soft); padding: 4px 6px; font-family: var(--font-mono); vertical-align: top; }
+table.leaves tr.hl td { background: var(--accent-soft); }
+.tbl-wrap { overflow-x: auto; }
+svg text { font-family: var(--font-mono); }
+.hl-shape { stroke: var(--ink) !important; stroke-width: 2.5px !important; }
+
+@media (max-width: 1100px) {
+  .grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-auto-rows: minmax(420px, auto); }
+  .view-pane { grid-column: 1 / -1; }
+}
+@media (max-width: 1100px), (max-height: 600px) {
+  html, body { height: auto; }
+  .app { height: auto; }
+  .grid { flex: none; }
+  .pane { overflow: visible; }
+  .pane-body { overflow: visible; }
+  #events { max-height: 360px; }
+}
+@media (max-width: 720px) {
+  .grid { grid-template-columns: minmax(0, 1fr); }
+  .view-pane { grid-column: auto; }
+}
+</style>
+
+<div class="app">
+  <header class="bar">
+    <span class="brand">PyFuncTion</span>
+    <span class="status" id="status" role="status"></span>
+  </header>
+
+  <main class="grid">
+    <section class="pane" aria-label="Program">
+      <div class="pane-head">
+        <h2>Program</h2>
+        <select id="example" aria-label="Example programs"></select>
+      </div>
+      <div class="pane-body">
+        <textarea id="source" spellcheck="false" aria-label="Python program" placeholder="Write a program, for example:
+
+def main(x, y):
+    while x > 0:
+        x = x - y
+
+or pick one of the examples above."></textarea>
+        <div class="opts">
+          <label for="domain">domain</label>
+          <select id="domain"><option>boxes</option><option>octagons</option><option>polyhedra</option></select>
+          <label for="ordinals">ordinals</label>
+          <select id="ordinals"><option value="">no (affine)</option><option value="1">up to ω</option><option value="2">up to ω²</option><option value="3">up to ω³</option></select>
+          <label for="joinbwd">widening delay</label>
+          <input id="joinbwd" type="number" min="0" value="2">
+          <label for="refine">refine</label>
+          <span><input id="refine" type="checkbox"> <span class="hint">restrict to reachable states</span></span>
+          <label for="precondition">precondition</label>
+          <input id="precondition" type="text" placeholder="e.g. x > 0">
+          <label for="timeout">timeout (s)</label>
+          <input id="timeout" type="number" min="1" value="30">
+        </div>
+        <div class="run-row">
+          <button class="btn primary" id="run" disabled>Analyze</button>
+          <span class="hint">Ctrl/⌘ + Enter</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="pane" aria-label="Analysis">
+      <div class="pane-head"><h2>Analysis</h2></div>
+      <div class="pane-body">
+        <div class="verdict" id="verdict"><span class="hint">The result appears here.</span></div>
+        <div>
+          <h3>Labeled program</h3>
+          <pre id="program"></pre>
+          <div class="hint">Click a label ℓ to see the ranking function inferred there.</div>
+        </div>
+        <h3>Backward analysis, step by step</h3>
+        <div class="stepper">
+          <button class="btn" id="first" title="First step (Home)" aria-label="First step">|◀</button>
+          <button class="btn" id="prev" title="Previous step (←)" aria-label="Previous step">◀</button>
+          <button class="btn" id="play" title="Play / pause (space)" aria-label="Play">▶︎ play</button>
+          <button class="btn" id="next" title="Next step (→)" aria-label="Next step">▶</button>
+          <button class="btn" id="last" title="Last step (End)" aria-label="Last step">▶|</button>
+          <input id="slider" type="range" min="0" max="0" value="0" aria-label="Step">
+          <span id="stepno"></span>
+        </div>
+        <ol id="events"></ol>
+      </div>
+    </section>
+
+    <section class="pane view-pane" aria-label="Ranking function">
+      <div class="pane-head" style="flex-direction: column; align-items: flex-start; gap: 2px;">
+        <div class="view-title" id="view-title">Ranking function</div>
+        <div class="view-ctx" id="view-ctx">Analyze a program to see its ranking functions here: the decision tree, its plot and its partitions.</div>
+      </div>
+      <div class="pane-body">
+        <div class="fwd" id="fwd"></div>
+        <div class="figure"><svg id="tree" role="img" aria-label="Decision tree"></svg></div>
+        <div class="legend">
+          <span>left branch: the constraint holds · right (dashed): its negation holds</span>
+          <span><span class="sw" style="background: var(--bot)"></span>⊥ undefined (no termination proof yet)</span>
+          <span><span class="sw" style="background: var(--top)"></span>⊤ undefined (loss of precision)</span>
+          <span><span class="sw" style="border: 1px dashed var(--muted)"></span>NIL no information</span>
+        </div>
+        <div class="plot-controls" id="plot-controls"></div>
+        <div class="plot-wrap figure">
+          <svg id="plot" role="img" aria-label="Plot of the ranking function"></svg>
+          <div id="tooltip" hidden></div>
+        </div>
+        <div class="hint">The variables are integers: the partitions are drawn over the reals, but only their integer points (the dots, in small windows) matter. Hover the plot to read the value of the ranking function.</div>
+        <div class="tbl-wrap"><table class="leaves" id="leaves"></table></div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<script id="examples" type="application/json">/*EXAMPLES*/[]</script>
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const SVGNS = "http://www.w3.org/2000/svg";
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const EXAMPLES = JSON.parse($("examples").textContent);
+
+let res = null;        // the result of the last analysis
+let cur = null;        // what is shown: {which: 'event'|'final', id}
+let data = null;       // the tree shown, with its leaves
+let plot = { axes: [], slice: {}, window: [-10, 10, -10, 10] };
+let playing = null;
+
+// calls a function of pyfunction.web, in the Python of python -m pyfunction.gui
+// (JSON strings in and out)
+async function call(name, ...args) {
+  const r = await fetch("/api/" + name, { method: "POST", body: JSON.stringify(args) });
+  if (!r.ok) throw new Error(await r.text());
+  return r.text();
+}
+
+function setStatus(text, busy) {
+  $("status").textContent = text;
+  $("status").classList.toggle("busy", !!busy);
+}
+
+// ---------------------------------------------------------------- startup
+
+function boot() {
+  for (const [i, ex] of EXAMPLES.entries()) {
+    const o = document.createElement("option");
+    o.value = i; o.textContent = ex.name;
+    $("example").appendChild(o);
+  }
+  // the page opens on an empty program: write one, or pick an example
+  const none = document.createElement("option");
+  none.value = ""; none.textContent = "Examples…"; none.disabled = true; none.selected = true;
+  $("example").prepend(none);
+  $("run").disabled = false;
+  setStatus("Ready.", false);
+}
+
+function loadExample(i, andRun) {
+  const ex = EXAMPLES[i];
+  $("example").value = i;
+  $("source").value = ex.source;
+  const o = headerOptions(ex.source);
+  $("domain").value = o.domain || "boxes";
+  $("ordinals").value = o.ordinals || "";
+  $("joinbwd").value = o.joinbwd || 2;
+  $("refine").checked = !!o.refine;
+  $("precondition").value = o.precondition || "";
+  if (andRun) run();
+}
+
+// the options in the "# expected:" header of the test programs
+function headerOptions(src) {
+  const m = src.match(/^# expected:(.*)$/m);
+  const o = {};
+  if (!m) return o;
+  const toks = m[1].match(/"[^"]*"|\S+/g) || [];
+  for (let i = 0; i < toks.length; i++) {
+    const k = toks[i].replace(/^-+/, "");
+    if (k === "refine") o.refine = true;
+    else { o[k] = (toks[i + 1] || "").replace(/^"|"$/g, ""); i++; }
+  }
+  return o;
+}
+
+// ---------------------------------------------------------------- analysis
+
+async function run() {
+  if (!$("source").value.trim()) {
+    $("verdict").innerHTML = '<span class="hint">Write a program, or pick one of the examples, then click Analyze.</span>';
+    return;
+  }
+  stop();
+  const opts = {
+    domain: $("domain").value, ordinals: $("ordinals").value, joinbwd: $("joinbwd").value,
+    refine: $("refine").checked, precondition: $("precondition").value.trim(), timeout: $("timeout").value,
+  };
+  setStatus("Analyzing…", true);
+  $("run").disabled = true;
+  await new Promise((r) => setTimeout(r, 30));
+  const t0 = performance.now();
+  try {
+    res = JSON.parse(await call("analyze", $("source").value, JSON.stringify(opts)));
+  } catch (e) {
+    res = { error: String(e.message || e) };
+  }
+  $("run").disabled = false;
+  if (res.error) {
+    setStatus("Done.", false);
+    $("verdict").innerHTML = '<span class="pill ERROR">ERROR</span><div class="error">' + esc(res.error) + "</div>";
+    $("program").innerHTML = ""; $("events").innerHTML = "";
+    return;
+  }
+  setStatus("Analyzed in " + ((performance.now() - t0) / 1000).toFixed(2) + " s, " + res.events.length + " steps recorded.", false);
+  const verdicts = { TRUE: "termination proven", UNKNOWN: "termination not proven", TIMEOUT: "the analysis timed out" };
+  $("verdict").innerHTML = '<span class="pill ' + res.result + '">' + res.result + "</span><span>" + verdicts[res.result] +
+    (opts.precondition ? " under the precondition <code>" + esc(opts.precondition) + "</code>" : "") + "</span>" +
+    (res.truncated ? '<span class="hint">(only the first steps were recorded)</span>' : "") +
+    (res.warnings.length ? '<div class="hint">' + res.warnings.map(esc).join("<br>") + "</div>" : "");
+  setupPlot();
+  renderProgram();
+  renderEvents();
+  show({ which: "final", id: res.labels[0] });
+}
+
+function renderProgram() {
+  $("program").innerHTML = res.program.map((l, i) => {
+    const t = esc(l.text).replace(/\[\s*(\d+):\]/g, (m, n) => '<span class="lab" data-l="' + n + '">ℓ' + n + "</span>");
+    return '<span class="ln" data-i="' + i + '">' + t + "</span>";
+  }).join("");
+}
+
+function renderEvents() {
+  const ol = $("events");
+  const frag = document.createDocumentFragment();
+  res.events.forEach((e, i) => {
+    const li = document.createElement("li");
+    li.dataset.i = i;
+    li.className = "k-" + (e.kind.startsWith("widen") || e.kind === "left_unification" ? "widen" : e.kind);
+    li.style.paddingLeft = (8 + 14 * e.depth) + "px";
+    li.innerHTML = '<span class="n">' + (i + 1) + "</span>" + esc(e.title);
+    li.title = e.context;
+    frag.appendChild(li);
+  });
+  ol.innerHTML = "";
+  ol.appendChild(frag);
+  $("slider").max = Math.max(0, res.events.length - 1);
+}
+
+// ---------------------------------------------------------------- showing a tree
+
+let shown = 0;
+async function show(what) {
+  cur = what;
+  const opts = { axes: plot.axes, slice: plot.slice, window: plot.window };
+  const n = ++shown;
+  const d = JSON.parse(await call("view", what.which, String(what.id), JSON.stringify(opts)));
+  if (n !== shown) return;  // a later step was requested meanwhile
+  data = d;
+  let label;
+  if (what.which === "event") {
+    const e = res.events[what.id];
+    label = e.label;
+    $("view-title").textContent = "Step " + (what.id + 1) + " · " + e.title;
+    $("view-ctx").textContent = e.context || "outside of the loops";
+    $("slider").value = what.id;
+    $("stepno").textContent = (what.id + 1) + " / " + res.events.length;
+  } else {
+    label = what.id;
+    $("view-title").textContent = "Ranking function at ℓ" + label;
+    $("view-ctx").textContent = "result of the analysis" + (label === res.labels[0] ? " (program entry)" : "");
+    $("stepno").textContent = "– / " + res.events.length;
+  }
+  document.querySelectorAll("#events li.cur").forEach((li) => li.classList.remove("cur"));
+  if (what.which === "event") {
+    const li = $("events").children[what.id];
+    if (li) { li.classList.add("cur"); li.scrollIntoView({ block: "nearest" }); }
+  }
+  document.querySelectorAll("#program .ln").forEach((ln) => {
+    ln.classList.toggle("cur", res.program[ln.dataset.i].labels.includes(label));
+  });
+  document.querySelectorAll("#program .lab").forEach((s) => s.classList.toggle("sel", Number(s.dataset.l) === label));
+  const fwd = res.forward[label];
+  $("fwd").innerHTML = (fwd !== undefined ? "Reachable states at ℓ" + label + " (forward analysis): <code>" + esc(fwd) + "</code>" : "") +
+    (data.domain ? "<br>Tree restricted to: <code>" + esc(data.domain) + "</code>" : "");
+  colorLeaves();
+  drawTree();
+  drawPlot();
+  drawTable();
+}
+
+function colorLeaves() {
+  const fs = new Map();
+  for (const lf of data.leaves) {
+    if (lf.kind === "fun") {
+      if (!fs.has(lf.f)) fs.set(lf.f, "var(--c" + (fs.size % 8 + 1) + ")");
+      lf.color = fs.get(lf.f);
+    } else lf.color = { bot: "var(--bot)", top: "var(--top)", ord: "var(--ordc)", nil: "none" }[lf.kind];
+  }
+}
+
+function svgEl(tag, attrs, parent) {
+  const el = document.createElementNS(SVGNS, tag);
+  for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+  if (parent) parent.appendChild(el);
+  return el;
+}
+
+let measureCtx = null;
+function textWidth(s, size) {
+  if (!measureCtx) measureCtx = document.createElement("canvas").getContext("2d");
+  measureCtx.font = size + 'px "IBM Plex Mono", monospace';
+  return measureCtx.measureText(s).width;
+}
+
+function patterns(svg) {
+  const defs = svgEl("defs", {}, svg);
+  const p1 = svgEl("pattern", { id: svg.id + "-bot", width: 6, height: 6, patternUnits: "userSpaceOnUse", patternTransform: "rotate(45)" }, defs);
+  svgEl("rect", { width: 6, height: 6, style: "fill: var(--bot); opacity: 0.18" }, p1);
+  svgEl("line", { x1: 0, y1: 0, x2: 0, y2: 6, style: "stroke: var(--bot); stroke-width: 2.5" }, p1);
+  const p2 = svgEl("pattern", { id: svg.id + "-top", width: 6, height: 6, patternUnits: "userSpaceOnUse", patternTransform: "rotate(-45)" }, defs);
+  svgEl("rect", { width: 6, height: 6, style: "fill: var(--top); opacity: 0.18" }, p2);
+  svgEl("line", { x1: 0, y1: 0, x2: 0, y2: 6, style: "stroke: var(--top); stroke-width: 2.5" }, p2);
+  const p3 = svgEl("pattern", { id: svg.id + "-ord", width: 6, height: 6, patternUnits: "userSpaceOnUse" }, defs);
+  svgEl("rect", { width: 6, height: 6, style: "fill: var(--ordc); opacity: 0.18" }, p3);
+  svgEl("circle", { cx: 3, cy: 3, r: 1.3, style: "fill: var(--ordc)" }, p3);
+}
+
+function fillOf(lf, svg, alpha) {
+  if (lf.kind === "fun") return "fill: " + lf.color + "; fill-opacity: " + alpha;
+  if (lf.kind === "nil") return "fill: var(--panel); fill-opacity: 0.6";
+  return "fill: url(#" + svg.id + "-" + lf.kind + ")";
+}
+
+// the decision tree, drawn top-down as on the slides
+function drawTree() {
+  const svg = $("tree");
+  svg.innerHTML = "";
+  patterns(svg);
+  const FS = 12, H = 26, VGAP = 56, HGAP = 14;
+  const leaves = data.leaves;
+  let x = 10;
+  function layout(t, depth) {
+    if (t.leaf !== undefined) {
+      const lf = leaves[t.leaf];
+      const w = Math.max(44, textWidth(lf.f, FS) + 18);
+      const node = { leaf: lf, w, x: x + w / 2, y: 18 + depth * VGAP };
+      x += w + HGAP;
+      return node;
+    }
+    const l = layout(t.l, depth + 1), r = layout(t.r, depth + 1);
+    const w = textWidth(t.c, FS) + 18;
+    return { c: t.c, w, x: (l.x + r.x) / 2, y: 18 + depth * VGAP, l, r };
+  }
+  const root = layout(data.tree, 0);
+  let maxX = x, minX = 0, maxY = 0;
+  (function bounds(n) {
+    maxX = Math.max(maxX, n.x + n.w / 2 + 10); minX = Math.min(minX, n.x - n.w / 2 - 10); maxY = Math.max(maxY, n.y + H);
+    if (n.l) { bounds(n.l); bounds(n.r); }
+  })(root);
+  const width = maxX - minX, height = maxY + 12;
+  svg.setAttribute("viewBox", minX + " 0 " + width + " " + height);
+  svg.setAttribute("width", width);
+  svg.setAttribute("height", height);
+  const gEdges = svgEl("g", {}, svg), gNodes = svgEl("g", {}, svg);
+  (function draw(n) {
+    if (n.l) {
+      for (const [ch, dashed] of [[n.l, false], [n.r, true]]) {
+        svgEl("line", { x1: n.x, y1: n.y + H / 2, x2: ch.x, y2: ch.y - H / 2,
+          style: "stroke: var(--muted); stroke-width: 1.2;" + (dashed ? " stroke-dasharray: 4 3" : "") }, gEdges);
+        draw(ch);
+      }
+      svgEl("rect", { x: n.x - n.w / 2, y: n.y - H / 2, width: n.w, height: H, rx: 4,
+        style: "fill: var(--panel); stroke: var(--ink); stroke-width: 1" }, gNodes);
+      const t = svgEl("text", { x: n.x, y: n.y + 4, "text-anchor": "middle", "font-size": FS, style: "fill: var(--ink)" }, gNodes);
+      t.textContent = n.c;
+    } else {
+      const lf = n.leaf;
+      const g = svgEl("g", { "data-leaf": lf.id, style: "cursor: default" + (lf.empty ? "; opacity: 0.35" : "") }, gNodes);
+      svgEl("rect", { x: n.x - n.w / 2, y: n.y - H / 2, width: n.w, height: H, rx: H / 2, class: "leaf-shape",
+        style: fillOf(lf, svg, 0.28) + "; stroke: " + (lf.kind === "fun" ? lf.color : "var(--muted)") + "; stroke-width: 1.2" +
+          (lf.kind === "nil" ? "; stroke-dasharray: 4 3" : "") }, g);
+      const t = svgEl("text", { x: n.x, y: n.y + 4, "text-anchor": "middle", "font-size": FS, style: "fill: var(--ink); font-weight: 500" }, g);
+      t.textContent = lf.f;
+      const title = svgEl("title", {}, g);
+      title.textContent = lf.empty ? "empty partition (unreachable path)" : lf.partition;
+      g.addEventListener("mouseenter", () => highlight(lf.id));
+      g.addEventListener("mouseleave", () => highlight(null));
+    }
+  })(root);
+}
+
+function drawTable() {
+  const rows = data.leaves.filter((lf) => !lf.empty);
+  $("leaves").innerHTML = "<thead><tr><th></th><th>partition</th><th>ranking function</th></tr></thead><tbody>" +
+    rows.map((lf) => '<tr data-leaf="' + lf.id + '"><td><span class="sw" style="' +
+      (lf.kind === "fun" ? "background: " + lf.color : lf.kind === "nil" ? "border: 1px dashed var(--muted)" : "background: " + lf.color) +
+      '"></span></td><td>' + esc(lf.partition) + "</td><td>" + esc(lf.f) + "</td></tr>").join("") + "</tbody>";
+  document.querySelectorAll("#leaves tr[data-leaf]").forEach((tr) => {
+    tr.addEventListener("mouseenter", () => highlight(Number(tr.dataset.leaf)));
+    tr.addEventListener("mouseleave", () => highlight(null));
+  });
+}
+
+function highlight(id) {
+  document.querySelectorAll(".hl-shape").forEach((el) => el.classList.remove("hl-shape"));
+  document.querySelectorAll("#leaves tr.hl").forEach((el) => el.classList.remove("hl"));
+  if (id === null) return;
+  document.querySelectorAll('[data-leaf="' + id + '"] .leaf-shape, .region[data-leaf="' + id + '"]').forEach((el) => el.classList.add("hl-shape"));
+  const tr = document.querySelector('#leaves tr[data-leaf="' + id + '"]');
+  if (tr) tr.classList.add("hl");
+}
+
+// ---------------------------------------------------------------- plot
+
+function setupPlot() {
+  const vs = res.variables;
+  const old = plot.axes.filter((v) => vs.includes(v));
+  plot.axes = old.length ? old : vs.slice(0, Math.min(2, res.inputs.length || vs.length));
+  if (!plot.axes.length && vs.length) plot.axes = [vs[0]];
+  for (const v of vs) if (plot.slice[v] === undefined) plot.slice[v] = 0;
+  // the window: a bit more than the constants of the program
+  const consts = ($("source").value.match(/\b\d+\b/g) || []).map(Number).filter((n) => n <= 1000);
+  const m = Math.max(10, Math.ceil(1.5 * Math.max(0, ...consts)));
+  plot.window = [-m, m, -m, m];
+  renderPlotControls();
+}
+
+function renderPlotControls() {
+  const vs = res.variables;
+  const opt = (sel, none) => (none ? '<option value="">—</option>' : "") +
+    vs.map((v) => "<option" + (v === sel ? " selected" : "") + ">" + esc(v) + "</option>").join("");
+  let h = '<label for="ax-x">x axis</label><select id="ax-x">' + opt(plot.axes[0]) + "</select>";
+  h += '<label for="ax-y">y axis</label><select id="ax-y">' + opt(plot.axes[1] || "", true) + "</select>";
+  const w = plot.window;
+  h += '<span><label for="w0">' + esc(plot.axes[0] || "x") + ' from</label> <input id="w0" type="number" value="' + w[0] +
+    '"> <label for="w1">to</label> <input id="w1" type="number" value="' + w[1] + '"></span>';
+  if (plot.axes[1]) h += '<span><label for="w2">' + esc(plot.axes[1]) + ' from</label> <input id="w2" type="number" value="' + w[2] +
+    '"> <label for="w3">to</label> <input id="w3" type="number" value="' + w[3] + '"></span>';
+  const others = vs.filter((v) => !plot.axes.includes(v));
+  if (others.length) h += '<span class="hint">slice:</span>' + others.map((v, i) => '<span><label for="sl' + i + '">' + esc(v) +
+    ' =</label> <input id="sl' + i + '" data-v="' + esc(v) + '" type="number" value="' + plot.slice[v] + '"></span>').join("");
+  $("plot-controls").innerHTML = vs.length ? h : '<span class="hint">The program has no variables to plot.</span>';
+  const redraw = () => { if (cur) show(cur); };
+  const sx = $("ax-x"), sy = $("ax-y");
+  if (!sx) return;
+  sx.onchange = sy.onchange = () => {
+    plot.axes = [sx.value].concat(sy.value && sy.value !== sx.value ? [sy.value] : []);
+    renderPlotControls(); redraw();
+  };
+  for (const k of [0, 1, 2, 3]) {
+    const el = $("w" + k);
+    if (el) el.onchange = () => { const v = Number(el.value); if (Number.isFinite(v)) plot.window[k] = Math.round(v); redraw(); };
+  }
+  document.querySelectorAll("#plot-controls input[data-v]").forEach((el) => {
+    el.onchange = () => { plot.slice[el.dataset.v] = Math.round(Number(el.value) || 0); redraw(); };
+  });
+}
+
+function niceTicks(lo, hi, n) {
+  const span = hi - lo || 1;
+  const step0 = span / n, mag = Math.pow(10, Math.floor(Math.log10(step0)));
+  const step = [1, 2, 5, 10].map((k) => k * mag).find((s) => s >= step0) || 10 * mag;
+  const out = [];
+  for (let v = Math.ceil(lo / step) * step; v <= hi + 1e-9; v += step) out.push(Math.round(v * 1e6) / 1e6);
+  return out;
+}
+
+function drawPlot() {
+  const svg = $("plot");
+  svg.innerHTML = "";
+  $("tooltip").hidden = true;
+  if (!plot.axes.length) { svg.setAttribute("viewBox", "0 0 10 10"); return; }
+  patterns(svg);
+  if (plot.axes.length === 1) plot1(svg); else plot2(svg);
+}
+
+function frame(svg, W, H, M, xlo, xhi, ylo, yhi, xlab, ylab) {
+  svg.setAttribute("viewBox", "0 0 " + W + " " + H);
+  const X = (v) => M.l + (v - xlo) / (xhi - xlo) * (W - M.l - M.r);
+  const Y = (v) => H - M.b - (v - ylo) / (yhi - ylo) * (H - M.t - M.b);
+  const g = svgEl("g", {}, svg);
+  for (const t of niceTicks(xlo, xhi, 10)) {
+    svgEl("line", { x1: X(t), x2: X(t), y1: M.t, y2: H - M.b, style: "stroke: var(--line); stroke-width: " + (t === 0 ? 1.4 : 0.6) }, g);
+    const tx = svgEl("text", { x: X(t), y: H - M.b + 14, "text-anchor": "middle", "font-size": 10.5, style: "fill: var(--muted)" }, g);
+    tx.textContent = t;
+  }
+  for (const t of niceTicks(ylo, yhi, 8)) {
+    svgEl("line", { x1: M.l, x2: W - M.r, y1: Y(t), y2: Y(t), style: "stroke: var(--line); stroke-width: " + (t === 0 ? 1.4 : 0.6) }, g);
+    const ty = svgEl("text", { x: M.l - 6, y: Y(t) + 3.5, "text-anchor": "end", "font-size": 10.5, style: "fill: var(--muted)" }, g);
+    ty.textContent = t;
+  }
+  const lx = svgEl("text", { x: W - M.r, y: H - 4, "text-anchor": "end", "font-size": 12, style: "fill: var(--ink); font-weight: 600" }, g);
+  lx.textContent = xlab;
+  const ly = svgEl("text", { x: 6, y: 14, "font-size": 12, style: "fill: var(--ink); font-weight: 600" }, g);
+  ly.textContent = ylab;
+  return { X, Y };
+}
+
+function plot1(svg) {
+  const [xlo, xhi] = plot.window;
+  const v = plot.axes[0];
+  const regs = data.leaves.filter((lf) => !lf.empty && lf.region);
+  let ymax = 1, ymin = 0;
+  for (const lf of regs) if (lf.kind === "fun") for (const x of lf.region) {
+    const y = lf.coeffs[0] * x + lf.const;
+    ymax = Math.max(ymax, y); ymin = Math.min(ymin, y);
+  }
+  ymax = Math.ceil(ymax * 1.1 + 0.5);
+  if (ymin < 0) ymin = Math.floor(ymin * 1.1 - 0.5);
+  const W = 720, H = 360, STRIP = 22;
+  const M = { l: 44, r: 16, t: 30, b: 34 + STRIP + 8 };
+  const { X, Y } = frame(svg, W, H, M, xlo - 0.5, xhi + 0.5, ymin, ymax, v, "steps to termination");
+  const dots = xhi - xlo <= 80;
+  const gS = svgEl("g", {}, svg), gF = svgEl("g", {}, svg);
+  const stripY = H - M.b + 22;
+  for (const lf of regs) {
+    const [a, b] = lf.region;
+    const r = svgEl("rect", { x: X(a - 0.5), y: stripY, width: Math.max(2, X(b + 0.5) - X(a - 0.5)), height: STRIP, class: "region", "data-leaf": lf.id,
+      style: fillOf(lf, svg, 0.55) + "; stroke: var(--panel); stroke-width: 1" }, gS);
+    r.addEventListener("mouseenter", () => highlight(lf.id));
+    r.addEventListener("mouseleave", () => highlight(null));
+    if (lf.kind !== "fun") continue;
+    const f = (x) => lf.coeffs[0] * x + lf.const;
+    svgEl("line", { x1: X(a), y1: Y(f(a)), x2: X(b), y2: Y(f(b)), class: "region", "data-leaf": lf.id,
+      style: "stroke: " + lf.color + "; stroke-width: 2.2; stroke-linecap: round" }, gF);
+    if (dots) for (let x = Math.ceil(a); x <= b; x++)
+      svgEl("circle", { cx: X(x), cy: Y(f(x)), r: 3.2, style: "fill: " + lf.color + "; stroke: var(--bg); stroke-width: 1" }, gF);
+  }
+  svg.onmousemove = (ev) => {
+    const p = svgPoint(svg, ev);
+    const x = Math.round(xlo - 0.5 + (p.x - M.l) / (W - M.l - M.r) * (xhi - xlo + 1));
+    const lf = regs.find((l) => l.region[0] <= x + 1e-9 && x - 1e-9 <= l.region[1]);
+    tooltip(ev, lf, v + " = " + x, lf && lf.kind === "fun" ? lf.coeffs[0] * x + lf.const : null);
+  };
+  svg.onmouseleave = () => { $("tooltip").hidden = true; highlight(null); };
+}
+
+function plot2(svg) {
+  const [xlo, xhi, ylo, yhi] = plot.window;
+  const [vx, vy] = plot.axes;
+  const W = 720, H = Math.round(Math.min(560, Math.max(320, 720 * (yhi - ylo) / (xhi - xlo || 1))));
+  const M = { l: 44, r: 16, t: 30, b: 34 };
+  const { X, Y } = frame(svg, W, H, M, xlo, xhi, ylo, yhi, vx, vy);
+  const regs = data.leaves.filter((lf) => !lf.empty && lf.region && lf.region.length);
+  const gR = svgEl("g", {}, svg), gL = svgEl("g", {}, svg);
+  for (const lf of regs) {
+    const pts = lf.region.map(([x, y]) => X(x) + "," + Y(y)).join(" ");
+    let el;
+    if (lf.region.length >= 3) {
+      el = svgEl("polygon", { points: pts, class: "region", "data-leaf": lf.id,
+        style: fillOf(lf, svg, 0.32) + "; stroke: " + (lf.kind === "fun" ? lf.color : "var(--muted)") + "; stroke-width: 1.2" +
+          (lf.kind === "nil" ? "; stroke-dasharray: 4 3" : "") }, gR);
+    } else {
+      const [p, q] = [lf.region[0], lf.region[lf.region.length - 1]];
+      el = svgEl("line", { x1: X(p[0]), y1: Y(p[1]), x2: X(q[0]) + (lf.region.length === 1 ? 0.01 : 0), y2: Y(q[1]), class: "region", "data-leaf": lf.id,
+        style: "stroke: " + (lf.kind === "fun" ? lf.color : lf.kind === "nil" ? "var(--muted)" : lf.color) + "; stroke-width: 5; stroke-linecap: round" }, gR);
+    }
+    el.addEventListener("mouseenter", () => highlight(lf.id));
+    el.addEventListener("mouseleave", () => highlight(null));
+    // the function, written in the region when it fits
+    if (lf.region.length >= 3) {
+      const xs = lf.region.map((p) => X(p[0])), ys = lf.region.map((p) => Y(p[1]));
+      const cx = xs.reduce((a, b) => a + b) / xs.length, cy = ys.reduce((a, b) => a + b) / ys.length;
+      const w = textWidth(lf.f, 12);
+      if (Math.max(...xs) - Math.min(...xs) > w + 8 && Math.max(...ys) - Math.min(...ys) > 20) {
+        const bg = svgEl("rect", { x: cx - w / 2 - 4, y: cy - 9, width: w + 8, height: 17, rx: 3, style: "fill: var(--panel); fill-opacity: 0.85" }, gL);
+        bg.style.pointerEvents = "none";
+        const t = svgEl("text", { x: cx, y: cy + 4, "text-anchor": "middle", "font-size": 12, style: "fill: var(--ink); font-weight: 600; pointer-events: none" }, gL);
+        t.textContent = lf.f;
+      }
+    }
+  }
+  if (xhi - xlo <= 40 && yhi - ylo <= 40) {
+    const gD = svgEl("g", { style: "pointer-events: none" }, svg);
+    for (let x = Math.ceil(xlo); x <= xhi; x++) for (let y = Math.ceil(ylo); y <= yhi; y++)
+      svgEl("circle", { cx: X(x), cy: Y(y), r: 1.1, style: "fill: var(--muted); opacity: 0.6" }, gD);
+  }
+  svg.onmousemove = (ev) => {
+    const p = svgPoint(svg, ev);
+    const x = Math.round(xlo + (p.x - M.l) / (W - M.l - M.r) * (xhi - xlo));
+    const y = Math.round(ylo + (H - M.b - p.y) / (H - M.t - M.b) * (yhi - ylo));
+    if (x < xlo || x > xhi || y < ylo || y > yhi) { $("tooltip").hidden = true; return; }
+    const lf = regs.find((l) => inRegion(l.region, x, y));
+    tooltip(ev, lf, "(" + vx + ", " + vy + ") = (" + x + ", " + y + ")",
+      lf && lf.kind === "fun" ? lf.coeffs[0] * x + lf.coeffs[1] * y + lf.const : null);
+  };
+  svg.onmouseleave = () => { $("tooltip").hidden = true; highlight(null); };
+}
+
+function inRegion(poly, x, y) {
+  const E = 1e-9;
+  if (poly.length === 1) return Math.abs(poly[0][0] - x) < E && Math.abs(poly[0][1] - y) < E;
+  if (poly.length === 2) {
+    const [[ax, ay], [bx, by]] = poly;
+    const cr = (bx - ax) * (y - ay) - (by - ay) * (x - ax);
+    return Math.abs(cr) < E && x >= Math.min(ax, bx) - E && x <= Math.max(ax, bx) + E && y >= Math.min(ay, by) - E && y <= Math.max(ay, by) + E;
+  }
+  let sign = 0;
+  for (let i = 0; i < poly.length; i++) {
+    const [ax, ay] = poly[i], [bx, by] = poly[(i + 1) % poly.length];
+    const cr = (bx - ax) * (y - ay) - (by - ay) * (x - ax);
+    if (Math.abs(cr) < E) continue;
+    const s = Math.sign(cr);
+    if (sign && s !== sign) return false;
+    sign = s;
+  }
+  return true;
+}
+
+function svgPoint(svg, ev) {
+  const pt = svg.createSVGPoint();
+  pt.x = ev.clientX; pt.y = ev.clientY;
+  return pt.matrixTransform(svg.getScreenCTM().inverse());
+}
+
+function fmtNum(v) {
+  return Number.isInteger(v) ? String(v) : (Math.round(v * 1000) / 1000).toString();
+}
+
+function tooltip(ev, lf, where, value) {
+  const tt = $("tooltip");
+  highlight(lf ? lf.id : null);
+  if (!lf) { tt.hidden = true; return; }
+  tt.innerHTML = "<div>" + esc(where) + "</div><div style='color: var(--muted)'>" + esc(lf.partition) + "</div><div>" +
+    esc(lf.f) + (value !== null ? " = <b>" + fmtNum(value) + "</b>" : "") + "</div>";
+  tt.hidden = false;
+  const box = tt.parentElement.getBoundingClientRect();
+  let left = ev.clientX - box.left + 14, top = ev.clientY - box.top + 14;
+  if (left + tt.offsetWidth > box.width) left = ev.clientX - box.left - tt.offsetWidth - 10;
+  if (top + tt.offsetHeight > box.height) top = ev.clientY - box.top - tt.offsetHeight - 10;
+  tt.style.left = Math.max(0, left) + "px";
+  tt.style.top = Math.max(0, top) + "px";
+}
+
+// ---------------------------------------------------------------- stepping
+
+function step(i) {
+  if (!res || !res.events.length) return;
+  show({ which: "event", id: Math.max(0, Math.min(res.events.length - 1, i)) });
+}
+function stop() {
+  if (playing) { clearInterval(playing); playing = null; $("play").textContent = "▶︎ play"; }
+}
+function togglePlay() {
+  if (playing) return stop();
+  if (!res || !res.events.length) return;
+  if (cur.which !== "event" || cur.id >= res.events.length - 1) step(0);
+  $("play").textContent = "❚❚ pause";
+  playing = setInterval(() => {
+    if (cur.which !== "event" || cur.id >= res.events.length - 1) return stop();
+    step(cur.id + 1);
+  }, 900);
+}
+
+$("first").onclick = () => { stop(); step(0); };
+$("last").onclick = () => { stop(); step(res.events.length - 1); };
+$("prev").onclick = () => { stop(); step(cur && cur.which === "event" ? cur.id - 1 : 0); };
+$("next").onclick = () => { stop(); step(cur && cur.which === "event" ? cur.id + 1 : 0); };
+$("play").onclick = togglePlay;
+$("slider").oninput = () => { stop(); step(Number($("slider").value)); };
+$("events").onclick = (ev) => { const li = ev.target.closest("li"); if (li) { stop(); step(Number(li.dataset.i)); } };
+$("program").onclick = (ev) => { const s = ev.target.closest(".lab"); if (s) { stop(); show({ which: "final", id: Number(s.dataset.l) }); } };
+$("run").onclick = run;
+$("example").onchange = () => { if ($("example").value !== "") loadExample(Number($("example").value), true); };
+$("source").addEventListener("keydown", (ev) => {
+  if (ev.key === "Tab") {
+    ev.preventDefault();
+    const t = ev.target, s = t.selectionStart;
+    t.setRangeText("    ", s, t.selectionEnd, "end");
+  }
+});
+document.addEventListener("keydown", (ev) => {
+  if ((ev.ctrlKey || ev.metaKey) && ev.key === "Enter") { ev.preventDefault(); run(); return; }
+  const tag = (ev.target.tagName || "").toLowerCase();
+  if (["textarea", "input", "select"].includes(tag) || !res || res.error) return;
+  const i = cur && cur.which === "event" ? cur.id : -1;
+  if (ev.key === "ArrowRight") { ev.preventDefault(); stop(); step(i + 1); }
+  else if (ev.key === "ArrowLeft") { ev.preventDefault(); stop(); step(i - 1); }
+  else if (ev.key === "Home") { ev.preventDefault(); stop(); step(0); }
+  else if (ev.key === "End") { ev.preventDefault(); stop(); step(res.events.length - 1); }
+  else if (ev.key === " ") { ev.preventDefault(); togglePlay(); }
+});
+
+document.fonts.ready.then(() => { if (data) { drawTree(); drawPlot(); } });
+boot();
+</script>

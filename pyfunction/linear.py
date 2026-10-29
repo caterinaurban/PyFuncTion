@@ -102,6 +102,13 @@ def constraint_str(c, names):
     return '%s >= %s' % (lhs, -c[-1])
 
 
+def canonical_str(c, names):
+    """A constraint in canonical form, as on the slides: x - 6 >= 0."""
+    if is_unsat(c):
+        return 'False'
+    return '%s >= 0' % linexpr_str(c[:-1], c[-1], names)
+
+
 # linearization
 #
 # The abstract domains only handle linear expressions. An expression of the

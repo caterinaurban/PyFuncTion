@@ -90,6 +90,25 @@ The OCaml files in parentheses are the corresponding modules of FuncTion.
       decision_tree.py   decision trees (domains/DecisionTree.ml)
       termination.py     forward/backward iterator (main/TerminationIterator.ml)
       __main__.py        command line interface (main/Main.ml)
+      gui.py, gui.html   graphical interface (see below)
+      web.py             analysis recorded step by step, for the interface
+
+## Graphical interface
+
+From this folder (nothing to install, standard library only):
+
+    python3 -m pyfunction.gui
+
+starts a small web server on this machine and opens the interface in the
+browser (Ctrl+C stops it; `--port N` and `--no-browser` are available). Write
+or pick a program, analyze it, then:
+
+- click a label ℓ of the labeled program to see the ranking function inferred
+  there: the decision tree, the plot of the function (one or two variables,
+  the others fixed to a value of your choice) and its partitions;
+- replay the backward analysis step by step (buttons, slider, ← → keys, or
+  play): each statement, each iteration of the loops and each step of the
+  widening, with the tree and the plot at that point.
 
 ## Tests
 

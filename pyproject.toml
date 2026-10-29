@@ -18,3 +18,6 @@ pyfunction = "pyfunction.__main__:main"
 
 [tool.setuptools]
 packages = ["pyfunction"]
+
+[tool.setuptools.package-data]
+pyfunction = ["gui.html"]
