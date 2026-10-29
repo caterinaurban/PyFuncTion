@@ -35,6 +35,9 @@ def main(argv=None):
                     help='reduce the backward analysis to the reachable states')
     ap.add_argument('-precondition', '--precondition', default=None,
                     help='precondition assumed at the program entry (a Python boolean expression)')
+    ap.add_argument('-seed', '--seed', action='append', default=[],
+                    help='constraints to split the decision trees on from the start, e.g. "x >= 0 and x - y >= 1" '
+                    '(each comparison is a seed; the domain widening never removes them; can be repeated)')
     ap.add_argument('-timeout', '--timeout', type=float, default=300.0, help='timeout in seconds')
     ap.add_argument('-minimal', '--minimal', action='store_true', help='print the analysis result only')
     ap.add_argument('-time', '--time', action='store_true', help='print the analysis time')
@@ -48,6 +51,7 @@ def main(argv=None):
     try:
         program, fe = parse_program(source, args.main, args.file)
         precondition = fe.condition(args.precondition, program) if args.precondition else None
+        seeds = [fe.condition(s, program) for s in args.seed]
     except UnsupportedError as e:
         print('Unsupported program: %s' % e, file=sys.stderr)
         return 2
@@ -56,10 +60,14 @@ def main(argv=None):
     out = sys.stdout
     if not args.minimal:
         out.write('\nAbstract Syntax:\n%s\n' % program_str(program))
-    analysis = TerminationAnalysis(program, domain=args.domain, ordinals=args.ordinals,
-                                   joinfwd=args.joinfwd, joinbwd=args.joinbwd, refine=args.refine,
-                                   retrybwd=args.retrybwd, timeout=args.timeout,
-                                   tracefwd=args.tracefwd, tracebwd=args.tracebwd, out=out)
+    try:
+        analysis = TerminationAnalysis(program, domain=args.domain, ordinals=args.ordinals,
+                                       joinfwd=args.joinfwd, joinbwd=args.joinbwd, refine=args.refine,
+                                       retrybwd=args.retrybwd, timeout=args.timeout,
+                                       tracefwd=args.tracefwd, tracebwd=args.tracebwd, out=out, seeds=seeds)
+    except ValueError as e:  # e.g. a non-linear seed
+        print('Unsupported option: %s' % e, file=sys.stderr)
+        return 2
     start = time.time()
     try:
         terminating = analysis.run(precondition)

@@ -192,6 +192,8 @@ or pick one of the examples above."></textarea>
           <span><input id="refine" type="checkbox"> <span class="hint">restrict to reachable states</span></span>
           <label for="precondition">precondition</label>
           <input id="precondition" type="text" placeholder="e.g. x > 0">
+          <label for="seed">seeds</label>
+          <input id="seed" type="text" placeholder="e.g. x >= 0 and x - y >= 1" title="Constraints the decision trees are split on from the start: the domain widening never removes them">
           <label for="timeout">timeout (s)</label>
           <input id="timeout" type="number" min="1" value="30">
         </div>
@@ -304,6 +306,7 @@ function loadExample(i, andRun) {
   $("joinbwd").value = o.joinbwd || 2;
   $("refine").checked = !!o.refine;
   $("precondition").value = o.precondition || "";
+  $("seed").value = o.seed || "";
   if (andRun) run();
 }
 
@@ -331,7 +334,8 @@ async function run() {
   stop();
   const opts = {
     domain: $("domain").value, ordinals: $("ordinals").value, joinbwd: $("joinbwd").value,
-    refine: $("refine").checked, precondition: $("precondition").value.trim(), timeout: $("timeout").value,
+    refine: $("refine").checked, precondition: $("precondition").value.trim(), seed: $("seed").value.trim(),
+    timeout: $("timeout").value,
   };
   setStatus("Analyzing…", true);
   $("run").disabled = true;

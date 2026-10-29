@@ -130,6 +130,19 @@ class DecisionTree:
         """LEAF: ⊥_F, the totally undefined function (start of the fixpoint iterations)."""
         return DT(domain, Leaf(self.F.bot()))
 
+    def seeded(self, cs, domain=None):
+        """⊥_F split on the constraints cs (the seeds): the start of the
+        fixpoint iterations with option -seed. It is the same function as
+        LEAF: ⊥_F, but its decision nodes are never removed by the domain
+        widening (left unification keeps the constraints of the previous
+        iterate), so the partitions of the ranking function can always be
+        split on the seeds: they are thresholds for the domain widening."""
+        t = Leaf(self.F.bot())
+        for c in cs:
+            nc = negate(c)
+            t = Node(c, nc, t, t) if nc <= c else Node(nc, c, t, t)
+        return DT(domain, self.sort_tree(t))
+
     def zero(self, domain=None):
         """LEAF: λX1,...,Xk. 0, the ranking function at the program exit."""
         return DT(domain, Leaf(self.F.zero()))

@@ -32,7 +32,7 @@ def options(source):
                     i += 1
                 else:
                     v = args[i + 1]
-                    opts[a[1:]] = v if a in ('-domain', '-precondition') else int(v)
+                    opts[a[1:]] = v if a in ('-domain', '-precondition', '-seed') else int(v)
                     i += 2
     return opts
 
@@ -49,7 +49,9 @@ def analyze(path, **kw):
     program, fe = parse_program(source, filename=path)
     pre = opts.pop('precondition', None)
     pre = fe.condition(pre, program) if pre else None
-    return TerminationAnalysis(program, **opts).run(pre)
+    seed = opts.pop('seed', None)
+    seeds = [fe.condition(seed, program)] if seed else []
+    return TerminationAnalysis(program, seeds=seeds, **opts).run(pre)
 
 
 class TerminationTests(unittest.TestCase):
@@ -64,7 +66,7 @@ def _make(path):
     return test
 
 
-for _d in ('termination', 'python'):
+for _d in ('termination', 'python', 'issues'):
     for _p in sorted(glob.glob(os.path.join(HERE, _d, '*.py'))):
         _n = 'test_%s_%s' % (_d, os.path.splitext(os.path.basename(_p))[0])
         setattr(TerminationTests, _n, _make(_p))

@@ -85,7 +85,7 @@ class _Recorder:
         elif kind == 'iteration':
             n = info['n']
             if n == 1:
-                title = '%s: iterate 1 = ⊥ (start)' % _lbl(label)
+                title = '%s: iterate 1 = ⊥ (start%s)' % (_lbl(label), ', split on the seeds' if info.get('seeded') else '')
             else:
                 title = '%s: iterate %d%s' % (_lbl(label), n, ' (after widening)' if info.get('widened') else '')
         elif kind == 'body':
@@ -130,12 +130,16 @@ def analyze(source, opts_json='{}'):
         program, fe = parse_program(source, opts.get('main') or 'main')
         pre = opts.get('precondition') or None
         precondition = fe.condition(pre, program) if pre else None
+        seeds = [fe.condition(opts['seed'], program)] if opts.get('seed') else []
     except UnsupportedError as e:
         return json.dumps({'error': 'Unsupported program: %s' % e})
     except Exception as e:  # e.g. syntax errors in the precondition
         return json.dumps({'error': '%s: %s' % (type(e).__name__, e)})
     rec = _Recorder()
-    a = TerminationAnalysis(program, record=rec, **_options(opts))
+    try:
+        a = TerminationAnalysis(program, record=rec, seeds=seeds, **_options(opts))
+    except ValueError as e:  # e.g. a non-linear seed
+        return json.dumps({'error': 'Unsupported option: %s' % e})
     try:
         r = a.run(precondition)
         result = 'TRUE' if r else 'UNKNOWN'
@@ -251,50 +255,18 @@ def view(which, ident, plot_json='{}'):
                        'domain': None if t.domain is None else str(t.domain)})
 
 
-# the examples of the slides (the others come from the tests)
-SLIDES = [
-    ('slides: x ← -2x + 10', '''# expected: -joinbwd 5
-def main(x):
-    while x >= 0:
-        x = -2 * x + 10
-'''),
-    ('slides: x ← x - y', '''# expected: -domain polyhedra
-def main(x, y):
-    while x > 0:
-        x = x - y
-'''),
-    ('slides: countdown', '''def main(x):
-    while x > 0:
-        x = x - 1
-'''),
-    ('slides: ordinals', '''# expected: -ordinals 2
-def main(x1, x2):
-    while x1 > 0 and x2 > 0:
-        b = input()
-        if b >= 0:
-            x1 = x1 - 1
-            x2 = input()
-        else:
-            x2 = x2 - 1
-'''),
-    ('parity (UNKNOWN)', '''def main(x):
-    while x != 0:
-        x = x - 2
-'''),
-]
-
-
 def page():
     """The page of the interface (gui.html), with the examples embedded."""
     here = os.path.dirname(os.path.abspath(__file__))
     root = os.path.dirname(here)
     with open(os.path.join(here, 'gui.html'), encoding='utf-8') as f:
         text = f.read()
-    examples = [{'name': n, 'source': s} for n, s in SLIDES]
-    for d in ('termination', 'python'):  # (only in a copy of the repository)
+    examples = []
+    for d in ('termination', 'python', 'issues'):
         for p in sorted(glob.glob(os.path.join(root, 'tests', d, '*.py'))):
             with open(p, encoding='utf-8') as f:
-                examples.append({'name': '%s/%s' % (d, os.path.basename(p)), 'source': f.read()})
+                source = f.read()
+                examples.append({'name': '%s/%s' % (d, os.path.basename(p)), 'source': source})
     text = text.replace('/*EXAMPLES*/[]', json.dumps(examples).replace('</', '<\\/'), 1)
     return ('<!doctype html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n'
             '<meta name="viewport" content="width=device-width, initial-scale=1">\n'

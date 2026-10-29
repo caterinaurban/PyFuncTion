@@ -23,8 +23,8 @@ analysis, a decision tree in the backward analysis.
 import sys
 import time
 
-from .syntax import Assign, Assume, If, While, Return, BConst, negate
-from .linear import Env
+from .syntax import Assign, Assume, If, While, Return, BConst, Not, BoolOp, Compare, negate
+from .linear import Env, tighten, negate as negate_constraint, compile_compare
 from .partition import DOMAINS, Partition
 from .functions import Affine, Ordinals, APPROXIMATION, COMPUTATIONAL
 from .decision_tree import DecisionTree
@@ -32,6 +32,35 @@ from .decision_tree import DecisionTree
 
 class Timeout(Exception):
     pass
+
+
+def seed_constraints(env, seeds):
+    """The linear constraints (in canonical form) of the seeds, conditions
+    over the program variables: each comparison in them is a seed, e.g.
+    'x == 0' gives x >= 0 and -x >= 0, 'x >= 0 and x - y >= 1' gives two
+    seeds. A seed and its negation are the same seed."""
+    out = {}
+
+    def atoms(b):
+        if isinstance(b, BoolOp):
+            atoms(b.left)
+            atoms(b.right)
+        elif isinstance(b, Not):
+            atoms(b.expr)
+        elif isinstance(b, Compare):
+            comp = compile_compare(env, b)
+            if comp.ntemps:
+                raise ValueError('the seeds must be linear constraints')
+            c = tighten(comp.expr)
+            nc = negate_constraint(c)
+            if any(c[:-1]):  # (constant comparisons are no seeds)
+                out.setdefault(max(c, nc), c)
+        elif not isinstance(b, BConst):
+            raise ValueError('unsupported seed')
+
+    for b in seeds:
+        atoms(b)
+    return list(out.values())
 
 
 class TerminationAnalysis:
@@ -48,7 +77,7 @@ class TerminationAnalysis:
 
     def __init__(self, program, domain='boxes', ordinals=None, joinfwd=2, joinbwd=2,
                  refine=False, retrybwd=5, timeout=300.0, tracefwd=False, tracebwd=False,
-                 out=sys.stdout, record=None):
+                 out=sys.stdout, record=None, seeds=()):
         if domain not in DOMAINS:
             raise ValueError('unknown abstract domain %s' % domain)
         self.program = program
@@ -66,6 +95,7 @@ class TerminationAnalysis:
         self.joinfwd = joinfwd    # widening delay of the forward analysis
         self.joinbwd = joinbwd    # widening delay of the backward analysis
         self.refine = refine      # restrict the backward analysis to the reachable states R♮
+        self.seeds = seed_constraints(self.env, seeds)  # the decision trees start split on them
         self.retrybwd = retrybwd  # see the jokers in _bwd_while
         self.timeout = timeout
         self.tracefwd = tracefwd
@@ -195,9 +225,9 @@ class TerminationAnalysis:
         p1 = D.filter(p, negate(s.cond), dm)  # FILTER_A[[not e]](t): exiting the loop
         if self.record:
             self.record('exit', l, p1)
-        i = D.bot(dm)
+        i = D.seeded(self.seeds, dm) if self.seeds else D.bot(dm)
         if self.record:
-            self.record('iteration', l, i, n=1)
+            self.record('iteration', l, i, n=1, seeded=bool(self.seeds))
         p2 = D.filter(self.bwd_blk(i, s.body), s.cond, dm)  # FILTER_A[[e]](R#_M[[s]] i)
         n = 1
         while True:

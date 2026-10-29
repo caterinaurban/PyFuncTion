@@ -32,6 +32,9 @@ Options (same names as FuncTion; `--name` also works):
     -retrybwd 5
     -refine                            reduce the backward analysis to the reachable states
     -precondition "x > 0"              precondition at the entry (a Python expression)
+    -seed "x >= 0 and x - y >= 1"      split the decision trees on these constraints from the
+                                       start: the domain widening never removes them (each
+                                       comparison is a seed; the option can be repeated)
     -timeout 300                       timeout in seconds
     -minimal                           print the analysis result only
     -time, -tracefwd, -tracebwd
@@ -118,9 +121,9 @@ or pick a program, analyze it, then:
 [`tests/termination`](https://github.com/caterinaurban/function/tree/master/tests/termination)
 of FuncTion, analyzed with the options used in its `termination.sh`
 (`# expected:` header line); `tests/python` contains programs using
-Python-specific constructs. `tests/issues` collects known problems: each
-program comes with a `.txt` file describing the issue (these programs are not
-run by the test suite).
+Python-specific constructs. `tests/issues` collects problems that have been
+fixed: each program comes with a `.txt` file describing the issue. The test
+suite and the examples of the graphical interface include all three folders.
 
 See `NOTES.md` for the differences with the OCaml version, and for per-file
 notes with suggestions for improving the analysis.
