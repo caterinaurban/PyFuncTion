@@ -1,6 +1,4 @@
-# expected: -domain octagons -precondition "r <= 0 or x < y"
-# result: UNKNOWN
-# (as FuncTion (OCaml): requires the smart widening of the SAS 2014 paper)
+# expected: -domain polyhedra -precondition "x < y" -seed "x < y"
 def main(x, y, r):
     while r > 0:
         r = r + x

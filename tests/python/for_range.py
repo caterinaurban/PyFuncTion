@@ -1,4 +1,4 @@
-# expected: -domain polyhedra -ordinals 2
+# expected: -domain polyhedra -ordinals 1
 def main(n, m):
     s = 0
     for i in range(n):

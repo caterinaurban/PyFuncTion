@@ -1,4 +1,3 @@
-# expected: -ordinals 2
 def main(x):
     while x != 0:
         if x > 0:

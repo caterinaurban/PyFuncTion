@@ -1,4 +1,4 @@
-# expected: -joinbwd 7
+# expected: -joinbwd 6
 import random
 
 

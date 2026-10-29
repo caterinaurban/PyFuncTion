@@ -1,4 +1,4 @@
-# expected: -ordinals 2
+# expected: -ordinals 1
 import random
 
 

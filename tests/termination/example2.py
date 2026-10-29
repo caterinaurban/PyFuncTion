@@ -1,4 +1,3 @@
-# expected: -ordinals 2
 def main(x, y):
     while y < -2 or y > 2:
         if y < 0 and x > 10:
