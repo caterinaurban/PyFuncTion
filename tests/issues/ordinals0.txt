@@ -1,0 +1,126 @@
+Issue: ordinals0 (sv_num4f) - -ordinals 0 is not equivalent to no ordinals
+==========================================================================
+
+Status: FIXED in PyFuncTion (still present in FuncTion).
+
+Program (ordinals0.py):
+
+    def main(n):
+        bug = 0
+        y = 0
+        if n < 0:
+            return 0
+        x = n
+        while x > 0:
+            x = x - 1
+            y = y + 1
+        if n == y:
+            bug = 1
+        return 0
+
+The program obviously terminates (the loop runs n times).
+
+
+The problem
+-----------
+
+With -ordinals 0, the ranking functions have no power of ω, so they coincide
+with the affine functions: the analysis should give exactly the same results
+as without the flag. In FuncTion it does not:
+
+    ./function ordinals0.c -termination -domain polyhedra                    UNKNOWN
+    ./function ordinals0.c -termination -domain polyhedra -ordinals 0        TRUE
+    ./function ordinals0.c -termination -domain polyhedra -retrybwd 0        UNKNOWN
+    ./function ordinals0.c -termination -domain polyhedra -ordinals 0 -retrybwd 0   UNKNOWN
+
+The failure is on the partition n >= 2 of the ranking function at the entry:
+
+    without -ordinals                       with -ordinals 0
+    -n >= 1 ? 4                             -n >= 1 ? 4
+    n == 0 ? 8                              n == 0 ? 8
+    n == 1 ? 11                             n == 1 ? 11
+    n >= 2 ? top                            n >= 2 ? 4n + 6
+
+
+Cause
+-----
+
+-ordinals 0 selects a different abstract domain
+(DecisionTree(OrdinalValued(Affine)) instead of DecisionTree(Affine)), whose
+widening behaves differently because of the "jokers":
+
+  - at iteration n of a loop, the iterator computes
+        jokers = max 0 (retrybwd * (Ordinals.max + 1) - n + joinbwd)
+    (main/TerminationIterator.ml);
+  - the decision-tree widening widens the leaves with
+        F.widen ~jokers:ceil(jokers / retrybwd)
+    (domains/DecisionTree.ml, widen_up);
+  - Affine.widen ignores the jokers, while Ordinals.widen only widens the
+    leaf when  i = Ordinals.max + 1 - jokers > 0,  and otherwise simply takes
+    the new value (domains/Ordinals.ml).
+
+With the defaults retrybwd = 5 and joinbwd = 2, and -ordinals 0, we get
+jokers = 7 - n, hence i <= 0 up to iteration 6: the widening of the leaf
+values is postponed until iteration 7, while without the flag it starts at
+iteration 3.
+
+Confirmation: with -retrybwd 0 the jokers are always 0, and the outputs with
+and without -ordinals 0 are identical.
+
+A general widening delay does not have the same effect (-joinbwd 6 and
+-joinbwd 7 still give UNKNOWN): what matters is to delay only the widening of
+the leaf values, while the domain widening (left unification) and the value
+widening (extrapolation between adjacent leaves) start at iteration 3.
+
+
+Fix (PyFuncTion)
+----------------
+
+The leaf-widening delay is made independent of -ordinals: affine functions
+behave as ordinal-valued functions with no power of ω.
+
+  - Affine.widen honours the jokers: while jokers > 0, it returns the new
+    value (unless one of the two functions is top), as Ordinals.widen does
+    with max = 0 (functions.py);
+  - without -ordinals, the jokers are computed with max = 0, instead of the
+    default 5 (termination.py).
+
+(PyFuncTion also used to treat -ordinals 0 as "no ordinals", because 0 is
+false in Python; it now selects the ordinal-valued domain, as in FuncTion.)
+
+Checks:
+
+  - the outputs with and without -ordinals 0 are identical on all the test
+    programs (133 configurations: tests/termination, tests/python,
+    tests/issues, with boxes, octagons and polyhedra);
+  - compared with the previous behaviour, results only improve
+    (UNKNOWN -> TRUE), and the test suite passes:
+
+        tests/termination/example2c.py   -refine -domain polyhedra
+        tests/termination/example2d.py   -refine -domain polyhedra
+        tests/termination/example2e.py   -refine -domain polyhedra
+        tests/issues/ordinals0.py        -domain octagons
+        tests/issues/ordinals0.py        -domain polyhedra
+        tests/issues/sv_sum.py           -domain polyhedra
+
+
+Results after the fix
+---------------------
+
+    python3 -m pyfunction tests/issues/ordinals0.py ...
+
+                       (none)    -ordinals 0    -refine    -ordinals 0 -refine
+    -domain boxes       TRUE      TRUE           TRUE       TRUE
+    -domain octagons    TRUE      TRUE           UNKNOWN    UNKNOWN
+    -domain polyhedra   TRUE      TRUE           TRUE       TRUE
+
+Ranking function at the entry (-domain polyhedra, with or without
+-ordinals 0):
+
+    -n >= 1 ? 3
+    n == 0 ? 7
+    n == 1 ? 10
+    n >= 2 ? 4*n + 5
+
+(the constants differ by 1 from FuncTion because the C version has one more
+assignment)

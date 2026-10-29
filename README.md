@@ -98,7 +98,9 @@ The OCaml files in parentheses are the corresponding modules of FuncTion.
 [`tests/termination`](https://github.com/caterinaurban/function/tree/master/tests/termination)
 of FuncTion, analyzed with the options used in its `termination.sh`
 (`# expected:` header line); `tests/python` contains programs using
-Python-specific constructs.
+Python-specific constructs. `tests/issues` collects known problems: each
+program comes with a `.txt` file describing the issue (these programs are not
+run by the test suite).
 
 See `NOTES.md` for the differences with the OCaml version, and for per-file
 notes with suggestions for improving the analysis.

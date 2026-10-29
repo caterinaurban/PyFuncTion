@@ -255,7 +255,15 @@ class Affine:
     def widen(self, b, f1, f2, jokers=0):
         """f1 ▿_F[b] f2: the polyhedra widening of the hypographs (constraints
         of f1 that are not stable are dropped); ⊤_F if the result is not
-        bounded by a single affine function."""
+        bounded by a single affine function.
+
+        While jokers > 0, the widening is postponed and f2 is returned (unless
+        one of the functions is ⊤_F), exactly as for the ordinal-valued
+        functions with no power of ω (Ordinals.widen with max = 0): this
+        makes -ordinals 0 equivalent to no ordinals. Unlike FuncTion, where
+        the affine widening ignores the jokers."""
+        if jokers > 0 and f1.kind != TOP and f2.kind != TOP:
+            return f2
         if f1.kind == FUN and f2.kind == FUN:
             if b.is_bot():
                 return self._top

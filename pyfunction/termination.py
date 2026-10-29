@@ -55,9 +55,12 @@ class TerminationAnalysis:
         self.env = Env(program.variables)
         self.B = DOMAINS[domain]
         F = Affine(self.env)
-        if ordinals:
+        if ordinals is not None:
             F = Ordinals(F, ordinals)
-        self.ordmax = ordinals if ordinals else 5
+        # affine functions are ordinal-valued functions with no power of ω:
+        # without -ordinals, the jokers are computed as for -ordinals 0 (and
+        # Affine.widen honours them), so that the two are equivalent
+        self.ordmax = ordinals if ordinals is not None else 0
         self.out = out
         self.D = DecisionTree(self.B, F, self.env, retrybwd, self._trace if tracebwd else None)
         self.joinfwd = joinfwd    # widening delay of the forward analysis
@@ -194,8 +197,9 @@ class TerminationAnalysis:
                 self._trace('### %s:%d ###:\np1: %s\ni: %s\np2: %s\ni\': %s\n' % (
                     self._lbl(l), n, D.to_str(p1), D.to_str(i), D.to_str(p2), D.to_str(i1)))
             # "jokers": a budget of iterations decreasing with n, used by the
-            # widening of ordinal-valued functions to delay the introduction
-            # of higher powers of ω (cf. functions.Ordinals.widen)
+            # widening of the leaves to delay the widening of their values
+            # (and, for ordinals, the introduction of higher powers of ω; cf.
+            # functions.Affine.widen and functions.Ordinals.widen)
             jokers = max(0, self.retrybwd * (self.ordmax + 1) - n + self.joinbwd)
             if D.is_leq(COMPUTATIONAL, i1, i):
                 if D.is_leq(APPROXIMATION, i1, i):
