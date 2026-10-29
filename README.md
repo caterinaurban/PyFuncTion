@@ -63,7 +63,8 @@ The frontend (`pyfunction/frontend.py`) works on the AST of the program (`ast` m
   `a, b = e1, e2`), `if/elif/else`, `while`, `for v in range(...)` (constant
   step), `pass`, `return`, `assert`, `raise`, `exit()`
 - calls to non-recursive functions of the same module (inlined, also with
-  early returns outside of loops), `abs`, `min`, `max`, `int`
+  early returns outside of loops), also through aliases (`main = f`), `abs`,
+  `min`, `max`, `int`
 - non-determinism: `random.randint(a, b)`, `random.randrange(a, b)`,
   `input()`, and calls to unknown functions (approximated by an arbitrary
   integer); `assume(cond)` restricts the analyzed executions

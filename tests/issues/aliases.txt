@@ -1,0 +1,87 @@
+Issue: aliases - unsound TRUE with function aliases and unknown calls
+====================================================================
+
+Status: FIXED (frontend).
+
+Program (aliases.py):
+
+    def countdown(n):
+        while n > 0:
+            n = n + 1
+
+
+    run = countdown
+    run(5)
+
+The program NEVER terminates: n starts at 5 and keeps increasing.
+
+
+Results
+-------
+
+    python3 -m pyfunction tests/issues/aliases.py -domain polyhedra
+
+    before the fix    TRUE      (wrong)
+    after the fix     UNKNOWN
+
+
+Cause
+-----
+
+Two problems in the frontend, which together made the analysis ignore the
+loop:
+
+1. Function aliases. `run = countdown` gives a second name to the function,
+   but the frontend translated it as an assignment of the (integer) variable
+   countdown to the variable run.
+
+2. Calls to unknown functions used as statements were silently dropped.
+   `run(5)` calls a function that the frontend does not know (run is not
+   defined with def): it was ignored, without any warning, which implicitly
+   assumes that the call terminates. As an expression (e.g. `y = run(5)`),
+   such a call is approximated by an arbitrary value, with a warning.
+
+Abstract syntax before the fix:
+
+    [ 1:] run = countdown
+    [ 2:]
+
+so the program was considered to terminate immediately.
+
+
+Fix
+---
+
+In pyfunction/frontend.py:
+
+  - aliases between functions at the top level of the module (`run = f`) are
+    resolved: calls through the alias are inlined like calls to f (the
+    recursion check uses the real name of the function);
+  - a function name used as a value in any other way (e.g. passed as an
+    argument) is rejected as unsupported;
+  - a call to an unknown function used as a statement now produces a warning
+    stating that it is assumed to terminate (print is still silently
+    ignored).
+
+Abstract syntax after the fix:
+
+    [ 1:] countdown#1.n = 5
+    [ 2:] while [ 3:] countdown#1.n > 0:
+        [ 4:] countdown#1.n = countdown#1.n + 1
+        [ 5:]
+    [ 6:]
+
+and the analysis answers UNKNOWN.
+
+For calls to functions that are not defined in the module, e.g.
+
+    from helpers import spin
+
+    x = 10
+    spin(x)
+
+the answer is still TRUE (the call is assumed to terminate), but now with the
+warning
+
+    Warning: line 4: call to unknown function spin ignored (assumed to
+    terminate, without effect on the variables)

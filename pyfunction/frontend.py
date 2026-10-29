@@ -139,6 +139,9 @@ class Frontend:
                 continue
             elif isinstance(s, ast.Expr) and isinstance(s.value, ast.Constant) and isinstance(s.value.value, str):
                 continue  # docstring
+            elif (isinstance(s, ast.Assign) and len(s.targets) == 1 and isinstance(s.targets[0], ast.Name)
+                  and isinstance(s.value, ast.Name) and s.value.id in self.funcs):
+                self.funcs[s.targets[0].id] = self.funcs[s.value.id]  # alias: main = f
             else:
                 toplevel.append(s)
         ctx = _Context()
@@ -149,7 +152,7 @@ class Frontend:
             for s in toplevel:  # global initializations
                 if isinstance(s, (ast.Assign, ast.AnnAssign, ast.AugAssign)):
                     stmts.extend(self.stmt(s, ctx))
-            ctx = _Context(stack=(self.entry,))
+            ctx = _Context(stack=(fdef.name,))
             stmts.extend(self.stmts(fdef.body, ctx))
         else:
             inputs = []
@@ -410,6 +413,9 @@ class Frontend:
             if name in _EXIT_FUNCS:
                 return [Return()]
             if name in _IGNORED_FUNCS or (name not in self.funcs):
+                if name not in _IGNORED_FUNCS:
+                    self.warnings.append('line %d: call to unknown function %s ignored (assumed to '
+                                         'terminate, without effect on the variables)' % (e.lineno, name or '?'))
                 out = []
                 for a in e.args:  # arguments are still evaluated
                     pre, _ = self.expr(a, ctx)
@@ -457,6 +463,8 @@ class Frontend:
                 return [], Const(e.value)
             raise UnsupportedError('unsupported constant %r (only integers are supported)' % (e.value,), e)
         if isinstance(e, ast.Name):
+            if e.id in self.funcs and e.id not in ctx.renaming:
+                raise UnsupportedError('function %s used as a value is not supported' % e.id, e)
             return [], Var(ctx.var(e.id))
         if isinstance(e, ast.UnaryOp):
             if isinstance(e.op, ast.Not):
@@ -573,14 +581,14 @@ class Frontend:
             pre += p
         if name not in _NONDET_FUNCS:
             self.warnings.append('line %d: call to unknown function %s approximated by a '
-                                 'non-deterministic value' % (e.lineno, name or '?'))
+                                 'non-deterministic value (and assumed to terminate)' % (e.lineno, name or '?'))
         return pre, Random()
 
     def _inline(self, e, ctx):
-        name = e.func.id
+        fdef = self.funcs[e.func.id]
+        name = fdef.name  # (e.func.id may be an alias)
         if name in ctx.stack:
             raise UnsupportedError('recursive function %s is not supported' % name, e)
-        fdef = self.funcs[name]
         params = self._params(fdef)
         self.inlined += 1
         prefix = '%s#%d.' % (name, self.inlined)
