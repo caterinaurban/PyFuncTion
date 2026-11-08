@@ -1211,7 +1211,7 @@ class DecisionTree:
         return DT(b, t.tree)
 
     # CTL operators (cf. the OCaml DecisionTree: reset, mask, until,
-    # complement, dual_widen). A leaf is "defined" if it is neither ⊥_F nor ⊤_F.
+    # dual_widen). A leaf is "defined" if it is neither ⊥_F nor ⊤_F.
 
     def _map(self, t, f_nil, f_leaf):
         def aux(tree):
@@ -1275,20 +1275,6 @@ class DecisionTree:
         t2 = self._pairs(t1, reset.tree,
                          lambda f1, f2: Leaf(F.reset(f1) if f2 is not None and F.defined(f2) else f1))
         return DT(t.domain, t2)
-
-    def complement(self, t):
-        """NOT: the defined leaves become ⊥_F, the ⊥_F leaves 0; ⊤_F and NIL
-        are unchanged."""
-        F = self.F
-
-        def f(g):
-            if F.is_bot(g):
-                return Leaf(F.zero())
-            if F.is_top(g):
-                return Leaf(g)
-            return Leaf(F.bot())
-
-        return self._map(t, None, f)
 
     def dual_widen(self, d1, d2):
         """The dual widening, for the greatest fixpoints of AG and EG: after

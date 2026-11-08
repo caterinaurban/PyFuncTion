@@ -169,8 +169,7 @@ def analyze(source, opts_json='{}'):
         if prop is None:
             a = TerminationAnalysis(program, record=rec, seeds=seeds, **_options(opts))
         else:
-            a = CTLAnalysis(program, prop, existential_equivalence=bool(opts.get('existential')),
-                            record=rec, seeds=seeds, **_options(opts))
+            a = CTLAnalysis(program, prop, record=rec, seeds=seeds, **_options(opts))
             warnings += a.warnings
     except ValueError as e:  # e.g. a non-linear seed
         return json.dumps({'error': 'Unsupported option: %s' % e})
@@ -181,7 +180,7 @@ def analyze(source, opts_json='{}'):
         result = 'TIMEOUT'
     except RecursionError:
         return json.dumps({'error': 'the analysis exceeded the recursion limit'})
-    except ValueError as e:  # e.g. EU with the existential equivalence
+    except ValueError as e:
         return json.dumps({'error': 'Unsupported option: %s' % e})
     if prop is not None and result == 'TIMEOUT' and not a.formulas:
         return json.dumps({'error': 'the analysis timed out before the first subformula was done'})

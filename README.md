@@ -39,7 +39,6 @@ Options (same names as FuncTion; `--name` also works):
                                        widening never remove them (each comparison is a seed;
                                        the option can be repeated)
     -ctl "AG{AF{x == 0}}"              prove a CTL property instead of termination
-    -ctl_existential_equivalence       CTL: prove EF, EG, EX as NOT AG NOT, NOT AF NOT, NOT AX NOT
     -angelic d,s                       the non-deterministic values of these variables are
                                        picked by the program (see Termination resilience below;
                                        the option can be repeated)
@@ -124,6 +123,16 @@ The atoms are Python conditions over the program variables (FuncTion's `&&`,
 points marked by a `#LABEL: label` comment, which is a no-op statement where
 it is written: on its own line, it belongs to the block given by its
 indentation; at the end of a statement, it comes after the statement.
+
+`NOT` is pushed down to the atoms before the analysis (negation normal form):
+e.g. `NOT{AF{p}}` is proven as `EG{NOT{p}}`, and `NOT{AU{p}{q}}` as
+`OR{EU{NOT{q}}{AND{NOT{p}}{NOT{q}}}}{EG{NOT{q}}}`. Complementing the trees
+instead would be unsound: an undefined leaf only means that a property is not
+proven, not that it does not hold. As the program exits have no successor
+(finite paths), the rewritten property implies `NOT{p}` but is not always
+equivalent to it (e.g. a terminating path where `p` never holds satisfies
+`NOT{AF{p}}` but not `EG{NOT{p}}`), so the rewriting is sound but can lose
+precision.
 
     $ cat tests/ctl/potential_termination_1.py
     def main():
@@ -252,7 +261,8 @@ program selects the tree shown when clicking a label.
 `tests/termination` contains Python versions of the C programs in
 [`tests/termination`](https://github.com/caterinaurban/function/tree/master/tests/termination)
 of FuncTion, analyzed with the options used in its `termination.sh`
-(`# expected:` header line); `tests/python` contains programs using
+(`# expected:` header line, or `# expected UNKNOWN:` when termination is not
+proven; `# expected UNKNOWN` alone when there are no options); `tests/python` contains programs using
 Python-specific constructs. `tests/issues` collects problems that have been
 fixed: each program comes with a `.txt` file describing the issue.
 `tests/angelic` contains programs for `-angelic`, in particular the cases

@@ -28,7 +28,15 @@ defined on all the states satisfying the precondition.
   - AG/EG: greatest fixpoints, starting from the tree of p and cutting away
     the states that can (A) / must (E) leave it (`mask`, `dual_widen`);
   - AX/EX: one step backward from the tree of p;
-  - AND, OR, NOT: meet, join, complement of the trees, label by label.
+  - AND, OR: meet and join of the trees, label by label;
+  - NOT: the property is first put in negation normal form (nnf), so that
+    NOT only applies to the atoms: NOT{atom} is the negated condition, and
+    e.g. NOT{AF{p}} = EG{NOT{p}}, NOT{AU{p}{q}} = OR{EU{NOT{q}}{AND{NOT{p}}
+    {NOT{q}}}}{EG{NOT{q}}}. A ⊥ leaf only means that a property is not
+    proven, not that it does not hold, so the complement of a tree (⊥ <-> 0)
+    would be unsound. With finite paths (below) the dualities hold in one
+    direction only (e.g. EG{NOT{p}} implies NOT{AF{p}}, but a finite path
+    where p never holds satisfies only the latter): sound, but incomplete.
 
 As in FuncTion, a program exit (and the end of the program) has no
 successor: no state satisfies a property there, so a finite path never
@@ -61,6 +69,7 @@ class Atomic:
     text: str  # the condition, as written
     label: Optional[str] = None
     cond: object = None  # the condition, translated (a BExp)
+    negated: bool = False  # NOT{atom} (introduced by nnf)
 
 
 @dataclass(frozen=True)
@@ -141,13 +150,37 @@ def translate_property(p, fe, program):
     """Translates the atoms of a property into conditions over the program
     variables (with the frontend fe)."""
     if isinstance(p, Atomic):
-        return Atomic(p.text, p.label, fe.condition(_python_condition(p.text, program.variables), program))
+        return Atomic(p.text, p.label, fe.condition(_python_condition(p.text, program.variables), program),
+                      p.negated)
     return Op(p.op, tuple(translate_property(a, fe, program) for a in p.args))
+
+
+_DUAL = {'AX': 'EX', 'EX': 'AX', 'AF': 'EG', 'EG': 'AF', 'EF': 'AG', 'AG': 'EF', 'AND': 'OR', 'OR': 'AND'}
+
+
+def nnf(p, neg=False):
+    """The negation normal form of p (of NOT{p} if neg): NOT only applies to
+    the atoms. With finite paths, the result implies the property (it is
+    equivalent to it on the infinite paths)."""
+    if isinstance(p, Atomic):
+        return Atomic(p.text, p.label, p.cond, p.negated != neg)
+    o, a = p.op, p.args
+    if o == 'NOT':
+        return nnf(a[0], not neg)
+    if not neg:
+        return Op(o, tuple(nnf(x) for x in a))
+    if o in _DUAL:
+        return Op(_DUAL[o], tuple(nnf(x, True) for x in a))
+    # NOT{AU{p}{q}} = OR{EU{NOT q}{AND{NOT p}{NOT q}}}{EG{NOT q}}, and dually for EU
+    u, g = ('EU', 'EG') if o == 'AU' else ('AU', 'AG')
+    np, nq = nnf(a[0], True), nnf(a[1], True)
+    return Op('OR', (Op(u, (nq, Op('AND', (np, nq)))), Op(g, (nq,))))
 
 
 def property_str(p):
     if isinstance(p, Atomic):
-        return ('%s: %s' % (p.label, p.text)) if p.label else p.text
+        s = ('%s: %s' % (p.label, p.text)) if p.label else p.text
+        return 'NOT{%s}' % s if p.negated else s
     return p.op + ''.join('{%s}' % property_str(a) for a in p.args)
 
 
@@ -183,10 +216,9 @@ class CTLAnalysis(TerminationAnalysis):
     are those of the termination analysis. `prop` is a translated property
     (translate_property)."""
 
-    def __init__(self, program, prop, existential_equivalence=False, **kw):
+    def __init__(self, program, prop, **kw):
         super().__init__(program, **kw)
         self.prop = prop
-        self.existential_equivalence = existential_equivalence
         self.formulas = []  # [(text, {label: tree})], in the order they are computed
         missing = property_labels(prop) - set(program_labels(program.body))
         self.warnings = ['label %s does not appear in the program (#LABEL: %s)' % (x, x) for x in sorted(missing)]
@@ -302,10 +334,10 @@ class CTLAnalysis(TerminationAnalysis):
 
     # AG, EG
 
-    def global_(self, q, fp, sink=False):
+    def global_(self, q, fp):
         D = self.D
         inv = dict(fp)
-        end = D.zero() if sink else D.bot()
+        end = D.bot()
 
         def blk(out, b):
             self._check_time()
@@ -406,20 +438,27 @@ class CTLAnalysis(TerminationAnalysis):
         t = self.D.reset(self.D.bot(), b)
         return {l: t for l in self.labels}
 
-    def label_atomic(self, name, b):
+    def label_atomic(self, name, b, negated=False):
+        """name: b holds at the labels name where b holds; NOT{name: b} at the
+        labels name where b does not hold, and at all the other labels."""
         D = self.D
-        t, bot = D.reset(D.bot(), b), D.bot()
         at = set(program_labels(self.program.body).get(name, ()))
-        return {l: (t if l in at else bot) for l in self.labels}
+        if negated:
+            t, other = D.reset(D.bot(), negate(b)), D.reset(D.bot(), BConst(True))
+        else:
+            t, other = D.reset(D.bot(), b), D.bot()
+        return {l: (t if l in at else other) for l in self.labels}
 
     def compute(self, p):
         D = self.D
         true = self.atomic(BConst(True))
-        ee = self.existential_equivalence
 
         def inv(p):
             if isinstance(p, Atomic):
-                r = self.label_atomic(p.label, p.cond) if p.label else self.atomic(p.cond)
+                if p.label:
+                    r = self.label_atomic(p.label, p.cond, p.negated)
+                else:
+                    r = self.atomic(negate(p.cond) if p.negated else p.cond)
             else:
                 o, a = p.op, p.args
                 if o == 'AX':
@@ -431,46 +470,27 @@ class CTLAnalysis(TerminationAnalysis):
                 elif o == 'AU':
                     r = self.until(UNIVERSAL, inv(a[0]), inv(a[1]))
                 elif o == 'EU':
-                    if ee:
-                        raise ValueError('the existential equivalence does not support EU')
                     r = self.until(EXISTENTIAL, inv(a[0]), inv(a[1]))
                 elif o == 'EF':
-                    if ee:  # EF p = NOT AG NOT p
-                        r = self._not(self.global_(UNIVERSAL, inv(Op('NOT', a)), sink=True))
-                    else:
-                        r = self.until(EXISTENTIAL, true, inv(a[0]))
+                    r = self.until(EXISTENTIAL, true, inv(a[0]))
                 elif o == 'EG':
-                    if ee:  # EG p = NOT AF NOT p
-                        r = self._not(self.until(UNIVERSAL, true, inv(Op('NOT', a))))
-                    else:
-                        r = self.global_(EXISTENTIAL, inv(a[0]))
+                    r = self.global_(EXISTENTIAL, inv(a[0]))
                 elif o == 'EX':
-                    if ee:  # EX p = NOT AX NOT p
-                        r = self._not(self.next_(UNIVERSAL, inv(Op('NOT', a))))
-                    else:
-                        r = self.next_(EXISTENTIAL, inv(a[0]))
+                    r = self.next_(EXISTENTIAL, inv(a[0]))
                 elif o == 'AND':
                     r1, r2 = inv(a[0]), inv(a[1])
                     r = {l: D.meet(COMPUTATIONAL, r1[l], r2[l]) for l in self.labels}
                 elif o == 'OR':
                     r1, r2 = inv(a[0]), inv(a[1])
                     r = {l: D.join(COMPUTATIONAL, r1[l], r2[l]) for l in self.labels}
-                elif o == 'NOT':
-                    if isinstance(a[0], Atomic) and not a[0].label:
-                        r = self.atomic(negate(a[0].cond))
-                    else:
-                        r = self._not(inv(a[0]))
-                else:
+                else:  # NOT does not occur in negation normal form
                     raise ValueError(o)
             self.formulas.append((property_str(p), r))
             self._rec('formula', self.entry_label, r[self.entry_label], text=property_str(p),
                       k=len(self.formulas) - 1)
             return r
 
-        return inv(p)
-
-    def _not(self, fp):
-        return {l: self.D.complement(t) for l, t in fp.items()}
+        return inv(nnf(p))
 
     def run(self, precondition=None):
         """Runs the analysis; returns True if the property is proven."""

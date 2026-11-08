@@ -189,9 +189,7 @@ def main(x, y):
 or pick one of the examples above."></textarea>
         <div class="opts">
           <label for="ctl">property</label>
-          <input id="ctl" type="text" placeholder="termination, or CTL: AG{AF{x == 0}}" title="Empty: termination. Otherwise a CTL property, as in FuncTion: AX AF AG AU EX EF EG EU AND OR NOT, e.g. AU{x >= y}{x == y}. Atoms are Python conditions; name: cond holds only at the #LABEL: name comments of the program.">
-          <label for="existential">E via A</label>
-          <span title="-ctl_existential_equivalence: prove EF p as NOT AG NOT p, EG p as NOT AF NOT p, EX p as NOT AX NOT p"><input id="existential" type="checkbox"> <span class="hint">EF = ¬AG¬, …</span></span>
+          <input id="ctl" type="text" placeholder="termination, or CTL: AG{AF{x == 0}}" title="Empty: termination. Otherwise a CTL property, as in FuncTion: AX AF AG AU EX EF EG EU AND OR NOT (pushed down to the atoms), e.g. AU{x >= y}{x == y}. Atoms are Python conditions; name: cond holds only at the #LABEL: name comments of the program.">
           <label for="domain">domain</label>
           <select id="domain"><option>boxes</option><option>octagons</option><option>polyhedra</option></select>
           <label for="ordinals">ordinals</label>
@@ -344,19 +342,18 @@ function loadExample(i, andRun) {
   $("seed").value = o.seed || "";
   $("angelic").value = o.angelic || "";
   $("ctl").value = o.ctl || "";
-  $("existential").checked = !!o.ctl_existential_equivalence;
   if (andRun) run();
 }
 
 // the options in the "# expected:" header of the test programs
 function headerOptions(src) {
-  const m = src.match(/^# expected(?: UNKNOWN)?:(.*)$/m);
+  const m = src.match(/^# expected(?: UNKNOWN:|:)(.*)$/m);
   const o = {};
   if (!m) return o;
   const toks = m[1].match(/"[^"]*"|\S+/g) || [];
   for (let i = 0; i < toks.length; i++) {
     const k = toks[i].replace(/^-+/, "");
-    if (k === "refine" || k === "ctl_existential_equivalence") o[k] = true;
+    if (k === "refine") o[k] = true;
     else { o[k] = (toks[i + 1] || "").replace(/^"|"$/g, ""); i++; }
   }
   return o;
@@ -374,7 +371,7 @@ async function run() {
     domain: $("domain").value, ordinals: $("ordinals").value, joinbwd: $("joinbwd").value,
     refine: $("refine").checked, precondition: $("precondition").value.trim(), seed: $("seed").value.trim(),
     angelic: $("angelic").value.trim(), timeout: $("timeout").value,
-    ctl: $("ctl").value.trim(), existential: $("existential").checked,
+    ctl: $("ctl").value.trim(),
   };
   setStatus("Analyzing…", true);
   $("run").disabled = true;

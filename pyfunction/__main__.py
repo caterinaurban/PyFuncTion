@@ -28,8 +28,6 @@ def main(argv=None):
     ap.add_argument('-ctl', '--ctl', default=None, metavar='PROPERTY',
                     help='CTL analysis of the property, e.g. "AG{AF{x == 0}}" (atoms are Python conditions; '
                     '"name: cond" holds only at the #LABEL: name comments)')
-    ap.add_argument('-ctl_existential_equivalence', '--ctl_existential_equivalence', action='store_true',
-                    help='CTL: prove EF, EG, EX through NOT AG NOT, NOT AF NOT, NOT AX NOT')
     ap.add_argument('-main', '--main', default='main', help='analyzed function (default: main, '
                     'or the module top-level code if there is no such function)')
     ap.add_argument('-domain', '--domain', default='boxes', choices=['boxes', 'octagons', 'polyhedra'],
@@ -84,7 +82,7 @@ def main(argv=None):
         if prop is None:
             analysis = TerminationAnalysis(program, **kw)
         else:
-            analysis = CTLAnalysis(program, prop, existential_equivalence=args.ctl_existential_equivalence, **kw)
+            analysis = CTLAnalysis(program, prop, **kw)
             for w in analysis.warnings:
                 print('Warning: %s' % w, file=sys.stderr)
     except ValueError as e:  # e.g. a non-linear seed
@@ -93,7 +91,7 @@ def main(argv=None):
     start = time.time()
     try:
         terminating = analysis.run(precondition)
-    except ValueError as e:  # e.g. EU with -ctl_existential_equivalence
+    except ValueError as e:
         print('Unsupported option: %s' % e, file=sys.stderr)
         return 2
     except Timeout:
