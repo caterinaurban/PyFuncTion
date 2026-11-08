@@ -36,10 +36,13 @@ with Python identifiers.
 """
 
 import ast
+import io
+import re
+import tokenize
 
 from .syntax import (Var, Const, Random, Interval, Neg, BinOp, BConst, Maybe,
                      Not, BoolOp, Compare, Assign, Assume, If, While, Return,
-                     Program, label_program)
+                     Label, Program, label_program)
 
 _BEXP = (BConst, Maybe, Not, BoolOp, Compare)
 
@@ -59,6 +62,82 @@ _NONDET_FUNCS = {'input', 'nondet', 'nondet_int', '__VERIFIER_nondet_int', 'getr
 _ASSUME_FUNCS = {'assume', '__VERIFIER_assume'}
 _EXIT_FUNCS = {'exit', 'quit', '_exit'}
 _IGNORED_FUNCS = {'print'}
+_LABEL_FUNC = '__label__'
+_LABEL_RE = re.compile(r'#\s*LABEL\s*:\s*(\S.*?)\s*$')
+_NAME_RE = re.compile(r'[A-Za-z_]\w*$')
+
+
+def label_comments(source):
+    """Turns the `#LABEL: name` comments into `__label__("name")` statements,
+    which the frontend translates into Label no-ops (for the labeled atomic
+    propositions of the CTL properties, e.g. `C1: true`). The label is where
+    the comment is:
+
+      - a comment on its own line is a statement of the block given by its
+        indentation (e.g. at the end of a loop body, or after it);
+      - a comment at the end of a statement comes after the statement.
+
+    The line numbers are unchanged."""
+    if 'LABEL' not in source:
+        return source
+    try:
+        toks = list(tokenize.generate_tokens(io.StringIO(source).readline))
+    except (tokenize.TokenError, IndentationError, SyntaxError):
+        return source  # reported by ast.parse
+    lines = source.splitlines(True)
+    skip = (tokenize.COMMENT, tokenize.NL, tokenize.INDENT, tokenize.DEDENT, tokenize.NEWLINE)
+    stack = ['']  # the indentation of the open blocks
+    last = []  # the last two significant tokens
+    for k, t in enumerate(toks):
+        if t.type == tokenize.INDENT:
+            stack.append(t.string)
+            continue
+        if t.type == tokenize.DEDENT:
+            stack.pop()
+            continue
+        if t.type != tokenize.COMMENT:
+            if t.type != tokenize.NL:
+                last = (last + [t])[-2:]
+            continue
+        m = _LABEL_RE.match(t.string)
+        if not m:
+            continue
+        row, col = t.start
+        name = m.group(1)
+        if not _NAME_RE.match(name):
+            raise UnsupportedError('line %d: invalid label name %r' % (row, name))
+        line = lines[row - 1]
+        stmt = '%s(%r)' % (_LABEL_FUNC, name)
+        nl = '\n' if line.endswith('\n') else ''
+        header = (len(last) == 2 and last[1].type == tokenize.NEWLINE
+                  and last[0].type == tokenize.OP and last[0].string == ':')
+        if line[:col].strip():  # at the end of a statement
+            nxt = toks[k + 1] if k + 1 < len(toks) else None
+            prev = last[-1] if last else None
+            if nxt is None or nxt.type != tokenize.NEWLINE:
+                raise UnsupportedError('line %d: a label comment must end a statement or be on its own line' % row)
+            if prev is not None and prev.type == tokenize.OP and prev.string == ':':
+                raise UnsupportedError('line %d: a label cannot follow "%s"; put it on its own line'
+                                       % (row, line.strip().split('#')[0].strip()))
+            lines[row - 1] = line[:col].rstrip() + '; ' + stmt + nl
+            continue
+        # on its own line: the indentation of the next statement (it must be
+        # at most that of the label, or the label would close its block)
+        nxt = next((u for u in toks[k + 1:] if u.type not in skip), None)
+        if nxt is None or nxt.type == tokenize.ENDMARKER:
+            indent = ''
+        else:
+            nline = lines[nxt.start[0] - 1]
+            indent = nline[:len(nline) - len(nline.lstrip())]
+        if header:  # the first statement of a block
+            cands = [indent]
+        else:
+            cands = [s for s in stack if len(s) >= len(indent)] or [indent]
+        own = line[:col]
+        fit = [s for s in cands if len(s) <= len(own)]
+        target = max(fit, key=len) if fit else min(cands, key=len)
+        lines[row - 1] = target + stmt + nl
+    return ''.join(lines)
 
 
 def _fold(op, a, b):
@@ -123,12 +202,13 @@ class Frontend:
         self.counter = 0
         self.inlined = 0
         self.warnings = []
+        self.approximations = set()  # see syntax.Program
 
     # entry point
 
     def translate(self):
         try:
-            module = ast.parse(self.source, filename=self.filename)
+            module = ast.parse(label_comments(self.source), filename=self.filename)
         except SyntaxError as e:
             raise UnsupportedError('syntax error: %s' % e)
         toplevel = []
@@ -169,7 +249,7 @@ class Frontend:
             if v not in seen:
                 seen.add(v)
                 variables.append(v)
-        return Program(variables, inputs, body)
+        return Program(variables, inputs, body, frozenset(self.approximations))
 
     def condition(self, text, program):
         """Translates a boolean condition over the program variables (e.g. a precondition)."""
@@ -198,6 +278,7 @@ class Frontend:
         It goes through a fresh tmp#k, which can never be named by -angelic,
         so that it is always treated demonically."""
         t = self.fresh()
+        self.approximations.add(t)
         return list(pre) + [Assign(t, Random())], Var(t)
 
     @staticmethod
@@ -420,6 +501,9 @@ class Frontend:
                 return list(pre) + [Assume(c)]
             if name in _EXIT_FUNCS:
                 return [Return()]
+            if (name == _LABEL_FUNC and isinstance(e.func, ast.Name) and len(e.args) == 1
+                    and isinstance(e.args[0], ast.Constant) and isinstance(e.args[0].value, str)):
+                return [Label(e.args[0].value)]
             if name in _IGNORED_FUNCS or (name not in self.funcs):
                 if name not in _IGNORED_FUNCS:
                     self.warnings.append('line %d: call to unknown function %s ignored (assumed to '
@@ -453,7 +537,41 @@ class Frontend:
             return pre, v
         if isinstance(v, Const):
             return pre, BConst(v.value != 0)
+        if isinstance(v, Random):
+            return pre, Maybe()  # e.g. if input(): both branches are possible
+        if isinstance(v, Interval) and isinstance(v.lo, Const) and isinstance(v.hi, Const):
+            # e.g. if random.randint(0, 1): a coin flip
+            if v.lo.value > 0 or v.hi.value < 0:
+                return pre, BConst(True)
+            if v.lo.value == v.hi.value == 0:
+                return pre, BConst(False)
+            return pre, Maybe()
+        pre, v = self._hoist(pre, v)
         return pre, BoolOp('or', Compare('<', v, Const(0)), Compare('>', v, Const(0)))
+
+    def _hoist(self, pre, v):
+        """The choices (Random, Interval) in an operand of a comparison are
+        first assigned to fresh temporaries, so that each choice has one
+        value in the whole condition: e.g. in 5 < random.randint(0, 10) < 3
+        the two comparisons are on the same value (this matters when the
+        choice is angelic, under the existential CTL operators)."""
+        out = list(pre)
+
+        def aux(e):
+            if isinstance(e, (Random, Interval)):
+                if isinstance(e, Interval) and isinstance(e.lo, Const) and e.lo == e.hi:
+                    return e.lo
+                t = self.fresh()
+                out.append(Assign(t, e))
+                return Var(t)
+            if isinstance(e, Neg):
+                return Neg(aux(e.expr))
+            if isinstance(e, BinOp):
+                return BinOp(e.op, aux(e.left), aux(e.right))
+            return e
+
+        v = aux(v)
+        return out, v
 
     @staticmethod
     def _binop(op, l, r):
@@ -501,6 +619,7 @@ class Frontend:
                 # Python semantics: the result has the sign of the divisor
                 # and is smaller in absolute value; x % 0 raises an exception
                 t = self.fresh()
+                self.approximations.add(t)
                 pos = Assign(t, Interval(Const(0), BinOp('-', r, Const(1))))
                 neg = Assign(t, Interval(BinOp('+', r, Const(1)), Const(0)))
                 check = If(Compare('>', r, Const(0)), [pos],
@@ -519,9 +638,11 @@ class Frontend:
             return pre, res
         if isinstance(e, ast.Compare):
             pre, left = self.aexp(e.left, ctx)
+            pre, left = self._hoist(pre, left)
             res = None
             for op, right in zip(e.ops, e.comparators):
                 p, r = self.aexp(right, ctx)
+                p, r = self._hoist(p, r)
                 pre = pre + p
                 c = self._compare(op, left, r, e)
                 res = c if res is None else BoolOp('and', res, c)

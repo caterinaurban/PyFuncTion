@@ -215,7 +215,15 @@ class Return:
     """Program exit."""
 
 
-Stmt = Union[Assign, Assume, If, While, Return]
+@dataclass
+class Label:
+    """A named program point (a `#LABEL: name` comment in the Python
+    source), for the labeled atomic propositions of the CTL properties
+    (e.g. `C1: true`); a no-op for the analysis."""
+    name: str
+
+
+Stmt = Union[Assign, Assume, If, While, Return, Label]
 
 
 @dataclass
@@ -230,6 +238,9 @@ class Program:
     variables: List[str]  # all program variables, in a fixed order
     inputs: List[str]  # the parameters of the analyzed function
     body: Block
+    # the variables whose non-deterministic values only approximate what the
+    # program computes (e.g. x ** y, unknown calls): never angelic
+    approximations: frozenset = frozenset()
 
 
 def label_program(stmts):
@@ -281,6 +292,8 @@ def stmt_str(l, s, ind):
         return [pre + 'assume %s' % bexp_str(s.cond)]
     if isinstance(s, Return):
         return [pre + 'exit']
+    if isinstance(s, Label):
+        return [pre + 'label %s' % s.name]
     if isinstance(s, If):
         out = [pre + 'if %s:' % bexp_str(s.cond)]
         out.extend(block_str(s.then, ind + '    '))

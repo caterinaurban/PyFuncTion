@@ -37,7 +37,7 @@ Implementation notes:
     nc ≤_C c (both are kept so that ¬c is not recomputed).
 """
 
-from .linear import negate, is_unsat, similar, mentions, constraint_str, compile_aexp
+from .linear import negate, is_unsat, similar, mentions, constraint_str, compile_aexp, compile_compare
 from .functions import APPROXIMATION, COMPUTATIONAL
 from .syntax import BConst, Maybe, Not, BoolOp, Compare, negate as negate_bexp
 
@@ -1049,7 +1049,7 @@ class DecisionTree:
             r = self._join_helper(f_bot, f_bot, f_leaf, r, u)
         return DT(pre, values(r, []))
 
-    def filter(self, t, e, domain=None):
+    def filter(self, t, e, domain=None, under=False):
         """The test FILTER_A[[e]]:
 
           1. apply STEP_F on the defined leaves (one more execution step
@@ -1060,7 +1060,13 @@ class DecisionTree:
              tree, and the parts of the tree where J does not hold become NIL.
 
         Conjunctions and disjunctions are handled with the meet ⋏_A and the
-        approximation join ⋎_A of the filtered trees."""
+        approximation join ⋎_A of the filtered trees.
+
+        With `under` (CTL: the existential operators and the atomic
+        propositions), J must under-approximate e instead (cf. the OCaml
+        filter ~underapprox): the comparisons that the partition domain does
+        not represent exactly, or that are not linear, are false (the whole
+        tree becomes NIL). E.g. x < y with boxes, or x * x < y."""
         F = self.F
         pre = domain
         post = t.domain
@@ -1073,19 +1079,31 @@ class DecisionTree:
         if isinstance(e, BConst):
             return DT(pre, None)
         if isinstance(e, Not):
-            return self.filter(t, negate_bexp(e.expr), pre)
+            return self.filter(t, negate_bexp(e.expr), pre, under)
         if isinstance(e, BoolOp):
-            t1 = self.filter(t, e.left, pre)
-            t2 = self.filter(t, e.right, pre)
+            t1 = self.filter(t, e.left, pre, under)
+            t2 = self.filter(t, e.right, pre, under)
             if e.op == 'and':
                 return self.meet(APPROXIMATION, t1, t2)
             return self.join(APPROXIMATION, t1, t2)
         if isinstance(e, Compare):
             bp = self.inner([]) if post is None else self.inner([]).meet(post)
-            bs = [(c, negate(c)) for c in bp.filter(e).constraints()]
+            r = bp.filter(e)
+            if under and not self._exact(bp, r, e):
+                return DT(pre, None)
+            bs = [(c, negate(c)) for c in r.constraints()]
             bs.sort(key=lambda p: lkey(*p))
             return DT(pre, self.prune(t.tree, bs, pre, step))
         raise TypeError(e)
+
+    def _exact(self, b, r, e):
+        """Whether r = FILTER_D[[e]] b is exactly b ∩ e: e is linear (no
+        temporaries) and r is included in the polyhedron b ∩ e (r always
+        contains its integer points)."""
+        comp = compile_compare(self.env, e)
+        if comp.ntemps:
+            return False
+        return r.to_poly().is_leq(b.to_poly().meet_constraints((), [comp.expr]))
 
     def prune(self, t, bs, domain=None, leaf=None):
         """Tree pruning: adds the set J = bs of linear constraints (pairs
@@ -1182,6 +1200,107 @@ class DecisionTree:
     def refine(self, t, b):
         """Restricts the tree to the states in b (option -refine)."""
         return DT(b, t.tree)
+
+    # CTL operators (cf. the OCaml DecisionTree: reset, mask, until,
+    # complement, dual_widen). A leaf is "defined" if it is neither ⊥_F nor ⊤_F.
+
+    def _map(self, t, f_nil, f_leaf):
+        def aux(tree):
+            if tree is None:
+                return f_nil
+            if isinstance(tree, Leaf):
+                return f_leaf(tree.f)
+            return Node(tree.c, tree.nc, aux(tree.l), aux(tree.r))
+        return DT(t.domain, aux(t.tree))
+
+    def _pairs(self, t1, t2, f, nil1=None):
+        """Unifies two trees and combines their leaves with f(f1, f2), where
+        f2 is None if t2 is NIL there; t1 is NIL (nil1) where it is NIL."""
+        def aux(u1, u2):
+            if u1 is None:
+                return nil1
+            if isinstance(u1, Leaf):
+                return f(u1.f, None if u2 is None else u2.f)
+            return Node(u1.c, u1.nc, aux(u1.l, u2.l if u2 is not None else None),
+                        aux(u1.r, u2.r if u2 is not None else None))
+        u1, u2 = self.unify(t1, t2)
+        return aux(u1, u2)
+
+    def reset(self, t, e, mask=None):
+        """The atomic proposition e on t: the leaves of t (of mask, if any)
+        where e holds are reset to 0, the others are unchanged. The filter
+        under-approximates e, so that the result is 0 only where e surely
+        holds. With mask, the ⊥_F leaves of mask stay ⊥_F."""
+        F = self.F
+        src = t if mask is None else mask
+        r = self.filter(src, e, under=True)
+
+        def zero(f):
+            return Leaf(f) if mask is not None and F.is_bot(f) else Leaf(F.reset(f))
+
+        r = self._map(r, None, zero)
+        return DT(t.domain, self._pairs(t.tree, r.tree, lambda f1, f2: Leaf(f1 if f2 is None else f2)))
+
+    def mask(self, t, m):
+        """Cuts away the parts of t outside of the domain of m: the defined
+        leaves of t where m is undefined (⊥_F, ⊤_F or NIL) become ⊥_F (used
+        by AG and EG, a greatest fixpoint)."""
+        F = self.F
+        bot = Leaf(F.bot())
+
+        def f(f1, f2):
+            if f2 is not None and F.defined(f2):
+                return Leaf(f1)
+            return bot if F.defined(f1) else Leaf(f1)
+
+        return DT(t.domain, self._pairs(t.tree, m.tree, f))
+
+    def until(self, t, keep, reset):
+        """For p1 U p2, with keep the tree of p1 and reset the tree of p2:
+        the leaves of t where p2 holds are reset to 0, those where neither p1
+        nor p2 holds become ⊥_F, the others are unchanged."""
+        F = self.F
+        valid = self.join(COMPUTATIONAL, keep, reset)
+        t1 = self._pairs(t.tree, valid.tree,
+                         lambda f1, f2: Leaf(f1 if f2 is None or F.defined(f2) else F.bot()))
+        t2 = self._pairs(t1, reset.tree,
+                         lambda f1, f2: Leaf(F.reset(f1) if f2 is not None and F.defined(f2) else f1))
+        return DT(t.domain, t2)
+
+    def complement(self, t):
+        """NOT: the defined leaves become ⊥_F, the ⊥_F leaves 0; ⊤_F and NIL
+        are unchanged."""
+        F = self.F
+
+        def f(g):
+            if F.is_bot(g):
+                return Leaf(F.zero())
+            if F.is_top(g):
+                return Leaf(g)
+            return Leaf(F.bot())
+
+        return self._map(t, None, f)
+
+    def dual_widen(self, d1, d2):
+        """The dual widening, for the greatest fixpoints of AG and EG: after
+        left unification (the structure of d1 is forced on d2), the leaves of
+        d2 that are not below those of d1 (computational order) become ⊥_F."""
+        F = self.F
+        domain = d1.domain
+        t2 = self.left_unification(d1.tree, d2.tree, domain, join_kind=APPROXIMATION)
+        u1, u2 = self.unify(d1.tree, t2)
+
+        def aux(u1, u2, cs):
+            if u1 is None or u2 is None:
+                return None
+            if isinstance(u1, Leaf):
+                b = self.dom(cs, domain)
+                if b.is_bot():
+                    return None
+                return u2 if F.is_leq(COMPUTATIONAL, b, u2.f, u1.f) else Leaf(F.bot())
+            return Node(u2.c, u2.nc, aux(u1.l, u2.l, [u2.c] + cs), aux(u1.r, u2.r, [u2.nc] + cs))
+
+        return DT(domain, aux(u1, u2, []))
 
     # printing
 

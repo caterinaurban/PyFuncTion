@@ -119,6 +119,11 @@ h3 { margin: 0; font-size: 12px; font-weight: 600; letter-spacing: 0.08em; text-
 #events li.k-iteration { font-weight: 600; }
 
 /* view */
+.formula-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 13px; }
+.formula-row label { color: var(--muted); }
+#formula { flex: 1; min-width: 0; padding: 3px 6px; border: 1px solid var(--line); border-radius: 4px; background: var(--panel);
+  font-family: var(--font-mono); font-size: 12px; }
+#events li.k-formula { color: var(--accent); font-weight: 600; }
 .view-title { font-family: var(--font-mono); font-size: 14px; font-weight: 600; }
 .view-ctx { color: var(--muted); font-size: 12px; }
 .fwd { font-size: 12px; color: var(--muted); }
@@ -183,6 +188,10 @@ def main(x, y):
 
 or pick one of the examples above."></textarea>
         <div class="opts">
+          <label for="ctl">property</label>
+          <input id="ctl" type="text" placeholder="termination, or CTL: AG{AF{x == 0}}" title="Empty: termination. Otherwise a CTL property, as in FuncTion: AX AF AG AU EX EF EG EU AND OR NOT, e.g. AU{x >= y}{x == y}. Atoms are Python conditions; name: cond holds only at the #LABEL: name comments of the program.">
+          <label for="existential">E via A</label>
+          <span title="-ctl_existential_equivalence: prove EF p as NOT AG NOT p, EG p as NOT AF NOT p, EX p as NOT AX NOT p"><input id="existential" type="checkbox"> <span class="hint">EF = ¬AG¬, …</span></span>
           <label for="domain">domain</label>
           <select id="domain"><option>boxes</option><option>octagons</option><option>polyhedra</option></select>
           <label for="ordinals">ordinals</label>
@@ -196,7 +205,7 @@ or pick one of the examples above."></textarea>
           <label for="seed">seeds</label>
           <input id="seed" type="text" placeholder="e.g. x >= 0 and x - y >= 1" title="Constraints the decision trees are split on from the start: the domain widening never removes them">
           <label for="angelic">angelic</label>
-          <input id="angelic" type="text" placeholder="e.g. d, s" title="Variables whose non-deterministic values (x = random.randint(a, b), x = input(), ...) are picked by the program instead of the environment: termination is proven if some value leads to termination. Parameters are always demonic.">
+          <input id="angelic" type="text" placeholder="e.g. d, s" title="Variables whose non-deterministic values (x = random.randint(a, b), x = input(), ...) are picked by the program instead of the environment: termination is proven if some value leads to termination. Parameters are always demonic. For CTL: under A operators; under E operators every choice is angelic.">
           <label for="timeout">timeout (s)</label>
           <input id="timeout" type="number" min="1" value="30">
         </div>
@@ -214,7 +223,11 @@ or pick one of the examples above."></textarea>
         <div>
           <h3>Labeled program</h3>
           <pre id="program"></pre>
-          <div class="hint">Click a label ℓ to see the ranking function inferred there.</div>
+          <div class="formula-row" id="formula-row" hidden>
+            <label for="formula">subformula</label>
+            <select id="formula"></select>
+          </div>
+          <div class="hint" id="program-hint">Click a label ℓ to see the ranking function inferred there.</div>
         </div>
         <h3>Backward analysis, step by step</h3>
         <div class="stepper">
@@ -240,7 +253,7 @@ or pick one of the examples above."></textarea>
         <div class="figure"><svg id="tree" role="img" aria-label="Decision tree"></svg></div>
         <div class="legend">
           <span>left branch: the constraint holds · right (dashed): its negation holds</span>
-          <span><span class="sw" style="background: var(--bot)"></span>⊥ undefined (no termination proof yet)</span>
+          <span><span class="sw" style="background: var(--bot)"></span><span id="bot-legend">⊥ undefined (no termination proof yet)</span></span>
           <span><span class="sw" style="background: var(--top)"></span>⊤ undefined (loss of precision)</span>
           <span><span class="sw" style="border: 1px dashed var(--muted)"></span>NIL no information</span>
         </div>
@@ -330,18 +343,20 @@ function loadExample(i, andRun) {
   $("precondition").value = o.precondition || "";
   $("seed").value = o.seed || "";
   $("angelic").value = o.angelic || "";
+  $("ctl").value = o.ctl || "";
+  $("existential").checked = !!o.ctl_existential_equivalence;
   if (andRun) run();
 }
 
 // the options in the "# expected:" header of the test programs
 function headerOptions(src) {
-  const m = src.match(/^# expected:(.*)$/m);
+  const m = src.match(/^# expected(?: UNKNOWN)?:(.*)$/m);
   const o = {};
   if (!m) return o;
   const toks = m[1].match(/"[^"]*"|\S+/g) || [];
   for (let i = 0; i < toks.length; i++) {
     const k = toks[i].replace(/^-+/, "");
-    if (k === "refine") o.refine = true;
+    if (k === "refine" || k === "ctl_existential_equivalence") o[k] = true;
     else { o[k] = (toks[i + 1] || "").replace(/^"|"$/g, ""); i++; }
   }
   return o;
@@ -359,6 +374,7 @@ async function run() {
     domain: $("domain").value, ordinals: $("ordinals").value, joinbwd: $("joinbwd").value,
     refine: $("refine").checked, precondition: $("precondition").value.trim(), seed: $("seed").value.trim(),
     angelic: $("angelic").value.trim(), timeout: $("timeout").value,
+    ctl: $("ctl").value.trim(), existential: $("existential").checked,
   };
   setStatus("Analyzing…", true);
   $("run").disabled = true;
@@ -377,16 +393,20 @@ async function run() {
     return;
   }
   setStatus("Analyzed in " + ((performance.now() - t0) / 1000).toFixed(2) + " s, " + res.events.length + " steps recorded.", false);
-  const verdicts = { TRUE: "termination proven", UNKNOWN: "termination not proven", TIMEOUT: "the analysis timed out" };
+  const verdicts = res.ctl ?
+    { TRUE: "property proven", UNKNOWN: "property not proven", TIMEOUT: "the analysis timed out" } :
+    { TRUE: "termination proven", UNKNOWN: "termination not proven", TIMEOUT: "the analysis timed out" };
   $("verdict").innerHTML = '<span class="pill ' + res.result + '">' + res.result + "</span><span>" + verdicts[res.result] +
+    (res.ctl ? ": <code>" + esc(res.ctl) + "</code>" : "") +
     (opts.precondition ? " under the precondition <code>" + esc(opts.precondition) + "</code>" : "") +
     (opts.angelic ? ", with angelic choices for <code>" + esc(opts.angelic) + "</code>" : "") + "</span>" +
     (res.truncated ? '<span class="hint">(only the first steps were recorded)</span>' : "") +
     (res.warnings.length ? '<div class="hint">' + res.warnings.map(esc).join("<br>") + "</div>" : "");
   setupPlot();
   renderProgram();
+  renderFormulas();
   renderEvents();
-  show({ which: "final", id: res.labels[0] });
+  show(finalAt(res.labels[0]));
 }
 
 function renderProgram() {
@@ -396,6 +416,20 @@ function renderProgram() {
   }).join("");
 }
 
+// CTL: the trees of each subformula φk (the last one is the property)
+function renderFormulas() {
+  const ctl = !!res.ctl;
+  $("formula-row").hidden = !ctl;
+  $("program-hint").textContent = ctl ? "Click a label ℓ to see the tree of the chosen subformula there: it is defined on states satisfying it, and bounds the steps before it holds (F, U)."
+    : "Click a label ℓ to see the ranking function inferred there.";
+  $("bot-legend").textContent = ctl ? "⊥ undefined (the subformula is not proven)" : "⊥ undefined (no termination proof yet)";
+  $("formula").innerHTML = res.formulas.map((f, k) => '<option value="' + k + '">φ' + (k + 1) + " = " + esc(f) + "</option>").join("");
+  if (ctl) $("formula").value = res.formulas.length - 1;
+}
+function finalAt(label) {
+  return res.ctl ? { which: "final", id: $("formula").value + ":" + label, label } : { which: "final", id: label, label };
+}
+
 function renderEvents() {
   const ol = $("events");
   const frag = document.createDocumentFragment();
@@ -403,6 +437,7 @@ function renderEvents() {
     const li = document.createElement("li");
     li.dataset.i = i;
     li.className = "k-" + (e.kind.startsWith("widen") || e.kind === "left_unification" ? "widen" : e.kind);
+    if (e.kind === "formula") li.style.borderTop = "1px solid var(--line)";
     li.style.paddingLeft = (8 + 14 * e.depth) + "px";
     li.innerHTML = '<span class="n">' + (i + 1) + "</span>" + esc(e.title);
     li.title = e.context;
@@ -432,9 +467,16 @@ async function show(what) {
     $("slider").value = what.id;
     $("stepno").textContent = (what.id + 1) + " / " + res.events.length;
   } else {
-    label = what.id;
-    $("view-title").textContent = "Ranking function at ℓ" + label;
-    $("view-ctx").textContent = "result of the analysis" + (label === res.labels[0] ? " (program entry)" : "");
+    label = what.label;
+    if (res.ctl) {
+      const k = Number(String(what.id).split(":")[0]);
+      $("view-title").textContent = "φ" + (k + 1) + " at ℓ" + label;
+      $("view-ctx").textContent = "φ" + (k + 1) + " = " + res.formulas[k] + (k === res.formulas.length - 1 ? " (the property)" : "") +
+        (label === res.labels[0] ? " · program entry" : "");
+    } else {
+      $("view-title").textContent = "Ranking function at ℓ" + label;
+      $("view-ctx").textContent = "result of the analysis" + (label === res.labels[0] ? " (program entry)" : "");
+    }
     $("stepno").textContent = "– / " + res.events.length;
   }
   document.querySelectorAll("#events li.cur").forEach((li) => li.classList.remove("cur"));
@@ -676,7 +718,7 @@ function plot1(svg) {
   if (ymin < 0) ymin = Math.floor(ymin * 1.1 - 0.5);
   const W = 720, H = 360, STRIP = 22;
   const M = { l: 44, r: 16, t: 30, b: 34 + STRIP + 8 };
-  const { X, Y } = frame(svg, W, H, M, xlo - 0.5, xhi + 0.5, ymin, ymax, v, "steps to termination");
+  const { X, Y } = frame(svg, W, H, M, xlo - 0.5, xhi + 0.5, ymin, ymax, v, res.ctl ? "steps (until the subformula holds)" : "steps to termination");
   const dots = xhi - xlo <= 80;
   const gS = svgEl("g", {}, svg), gF = svgEl("g", {}, svg);
   const stripY = H - M.b + 22;
@@ -826,7 +868,8 @@ $("next").onclick = () => { stop(); step(cur && cur.which === "event" ? cur.id +
 $("play").onclick = togglePlay;
 $("slider").oninput = () => { stop(); step(Number($("slider").value)); };
 $("events").onclick = (ev) => { const li = ev.target.closest("li"); if (li) { stop(); step(Number(li.dataset.i)); } };
-$("program").onclick = (ev) => { const s = ev.target.closest(".lab"); if (s) { stop(); show({ which: "final", id: Number(s.dataset.l) }); } };
+$("program").onclick = (ev) => { const s = ev.target.closest(".lab"); if (s) { stop(); show(finalAt(Number(s.dataset.l))); } };
+$("formula").onchange = () => { stop(); show(finalAt(cur && cur.which === "final" ? cur.label : res.labels[0])); };
 $("run").onclick = run;
 $("example").onchange = () => { if ($("example").value !== "") loadExample(Number($("example").value), true); };
 $("source").addEventListener("keydown", (ev) => {

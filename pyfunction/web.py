@@ -2,8 +2,9 @@
 The bridge between the graphical interface (gui.html, served by gui.py) and
 the analysis: the page calls the functions below, which exchange JSON strings.
 
-The backward analysis is recorded step by step (TerminationAnalysis(record=...)):
-each statement, each iteration of the loops, and each step of the widening,
+The backward analysis is recorded step by step (TerminationAnalysis(record=...),
+CTLAnalysis(record=...)): each statement, each iteration of the loops, each
+step of the widening and, for a CTL property, the result of each subformula,
 so that the interface can replay it.
 
 Run the interface with:
@@ -21,8 +22,9 @@ from .decision_tree import Node, Leaf
 from .frontend import parse_program, UnsupportedError
 from .functions import Aff, Ord, FUN, BOT, TOP
 from .linear import canonical_str
-from .syntax import Assign, Assume, If, While, Return, aexp_str, bexp_str, program_str
+from .syntax import Assign, Assume, If, While, Return, Label, aexp_str, bexp_str, program_str
 from .termination import TerminationAnalysis, Timeout
+from .ctl import CTLAnalysis, PropertyError, parse_property, translate_property
 
 MAX_EVENTS = 20000
 
@@ -33,7 +35,14 @@ def _lbl(l):
     return 'ℓ%d' % l
 
 
-def _stmt_title(s):
+def _stmt_title(s, ctl=False):
+    if isinstance(s, Label):
+        return 'label %s (no-op)' % s.name
+    if ctl:
+        if isinstance(s, Return):
+            return 'program exit: ⊥ (no successor)'
+        if isinstance(s, If):
+            return 'if %s: FILTER[[%s]](then) ⊔ FILTER[[not %s]](else)' % ((bexp_str(s.cond),) * 3)
     if isinstance(s, Assign):
         return 'ASSIGN←_A[[%s ← %s]]' % (s.target, aexp_str(s.value))
     if isinstance(s, Assume):
@@ -61,11 +70,12 @@ class _Recorder:
     """Collects the steps of the backward analysis, with their context (the
     enclosing loops and iterations)."""
 
-    def __init__(self):
+    def __init__(self, ctl=False):
         self.events = []
         self.trees = []
         self.loops = []  # [(loop label, iteration)]
         self.truncated = False
+        self.ctl = ctl
 
     def context(self):
         return ' › '.join('loop %s' % _lbl(l) + (', iteration %d' % n if n else '') for l, n in self.loops)
@@ -77,9 +87,13 @@ class _Recorder:
             self.loops[-1] = (label, info['n'])
         if label is None:  # the steps of the widening, in the innermost loop
             label = self.loops[-1][0] if self.loops else None
-        if kind == 'label':
+        if kind == 'formula':
+            title = 'φ%d = %s (done; tree at the entry %s)' % (info['k'] + 1, info['text'], _lbl(label))
+        elif 'title' in info:
+            title = '%s: %s' % (_lbl(label), info['title'])
+        elif kind == 'label':
             s = info.get('stmt')
-            title = '%s: %s' % (_lbl(label), _stmt_title(s) if s is not None else 'end of block')
+            title = '%s: %s' % (_lbl(label), _stmt_title(s, self.ctl) if s is not None else 'end of block')
         elif kind == 'exit':
             title = '%s: loop exit, FILTER_A[[not condition]](t)' % _lbl(label)
         elif kind == 'iteration':
@@ -122,6 +136,15 @@ def _options(opts):
     return o
 
 
+def _tree_of(a, ident):
+    """The final tree at a label; for a CTL analysis, ident is 'k:label'
+    (the tree of the subformula φk), or a label (the whole property)."""
+    if isinstance(a, CTLAnalysis) and ':' in str(ident):
+        k, l = str(ident).split(':')
+        return a.formulas[int(k)][1][int(l)]
+    return a.bwd[int(ident)]
+
+
 def analyze(source, opts_json='{}'):
     """Runs the analysis; returns the program, the result and the list of
     recorded steps (their trees are fetched with view())."""
@@ -132,13 +155,23 @@ def analyze(source, opts_json='{}'):
         pre = opts.get('precondition') or None
         precondition = fe.condition(pre, program) if pre else None
         seeds = [fe.condition(opts['seed'], program)] if opts.get('seed') else []
+        ctl = (opts.get('ctl') or '').strip()
+        prop = translate_property(parse_property(ctl), fe, program) if ctl else None
     except UnsupportedError as e:
         return json.dumps({'error': 'Unsupported program: %s' % e})
+    except PropertyError as e:
+        return json.dumps({'error': 'Invalid property: %s' % e})
     except Exception as e:  # e.g. syntax errors in the precondition
         return json.dumps({'error': '%s: %s' % (type(e).__name__, e)})
-    rec = _Recorder()
+    rec = _Recorder(ctl=prop is not None)
+    warnings = list(fe.warnings)
     try:
-        a = TerminationAnalysis(program, record=rec, seeds=seeds, **_options(opts))
+        if prop is None:
+            a = TerminationAnalysis(program, record=rec, seeds=seeds, **_options(opts))
+        else:
+            a = CTLAnalysis(program, prop, existential_equivalence=bool(opts.get('existential')),
+                            record=rec, seeds=seeds, **_options(opts))
+            warnings += a.warnings
     except ValueError as e:  # e.g. a non-linear seed
         return json.dumps({'error': 'Unsupported option: %s' % e})
     try:
@@ -148,6 +181,10 @@ def analyze(source, opts_json='{}'):
         result = 'TIMEOUT'
     except RecursionError:
         return json.dumps({'error': 'the analysis exceeded the recursion limit'})
+    except ValueError as e:  # e.g. EU with the existential equivalence
+        return json.dumps({'error': 'Unsupported option: %s' % e})
+    if prop is not None and result == 'TIMEOUT' and not a.formulas:
+        return json.dumps({'error': 'the analysis timed out before the first subformula was done'})
     _session.update(analysis=a, recorder=rec, program=program)
     lines = []
     for text in program_str(program).split('\n'):
@@ -158,11 +195,13 @@ def analyze(source, opts_json='{}'):
         'variables': list(program.variables),
         'inputs': list(program.inputs),
         'program': lines,
-        'labels': sorted(a.bwd),
+        'labels': sorted(a.bwd) if prop is None or result != 'TIMEOUT' else sorted(a.formulas[-1][1]),
+        'ctl': ctl if prop is not None else None,
+        'formulas': [text for text, _ in getattr(a, 'formulas', [])],
         'forward': {l: str(b) for l, b in a.fwd.items()},
         'events': rec.events,
         'truncated': rec.truncated,
-        'warnings': fe.warnings,
+        'warnings': warnings,
     })
 
 
@@ -230,7 +269,7 @@ def view(which, ident, plot_json='{}'):
     if which == 'event':
         t = _session['recorder'].trees[int(ident)]
     else:
-        t = a.bwd[int(ident)]
+        t = _tree_of(a, ident)
     D, env = a.D, a.env
     plot = json.loads(plot_json)
     axes = [v for v in plot.get('axes', []) if v in env.index]
@@ -263,7 +302,7 @@ def page():
     with open(os.path.join(here, 'gui.html'), encoding='utf-8') as f:
         text = f.read()
     examples = []
-    for d in ('termination', 'python', 'issues', 'angelic'):
+    for d in ('termination', 'python', 'issues', 'angelic', 'ctl'):
         for p in sorted(glob.glob(os.path.join(root, 'tests', d, '*.py'))):
             with open(p, encoding='utf-8') as f:
                 source = f.read()

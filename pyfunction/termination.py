@@ -23,7 +23,7 @@ analysis, a decision tree in the backward analysis.
 import sys
 import time
 
-from .syntax import Assign, Assume, If, While, Return, BConst, Not, BoolOp, Compare, Random, Interval, negate
+from .syntax import Assign, Assume, If, While, Return, Label, BConst, Not, BoolOp, Compare, Random, Interval, negate
 from .linear import Env, tighten, negate as negate_constraint, compile_compare, compile_aexp
 from .partition import DOMAINS, Partition
 from .functions import Affine, Ordinals, APPROXIMATION, COMPUTATIONAL
@@ -136,6 +136,8 @@ class TerminationAnalysis:
         if isinstance(s, Assume):
             # only the states satisfying the condition go on
             return p.filter(s.cond)
+        if isinstance(s, Label):
+            return p
         if isinstance(s, Return):
             # program exit: no state reaches the next label
             return B.bot(self.env)
@@ -201,6 +203,8 @@ class TerminationAnalysis:
             return D.bwd_assign(p, s.target, s.value, domain)
         if isinstance(s, Assume):
             return D.filter(p, s.cond, domain)
+        if isinstance(s, Label):  # a no-op (not an execution step)
+            return p if domain is None else D.refine(p, domain)
         if isinstance(s, Return):
             # program exit: 0 steps to termination, everywhere
             return D.zero(domain)
