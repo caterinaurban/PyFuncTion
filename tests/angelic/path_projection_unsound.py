@@ -1,5 +1,4 @@
-# expected: -domain polyhedra -angelic x
-# result: UNKNOWN
+# expected UNKNOWN: -domain polyhedra -angelic x
 # as path_projection.py, without the precondition: no x exists if y + z < 0
 def main(y, z):
     x = input()

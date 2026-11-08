@@ -1,5 +1,4 @@
-# expected: -domain polyhedra
-# result: UNKNOWN
+# expected UNKNOWN: -domain polyhedra
 # (the ranking function b + 1 depends on the bound b - 1 of a % b, which the
 # affine functions domain of FuncTion loses in the backward assignment)
 def main(a, b):

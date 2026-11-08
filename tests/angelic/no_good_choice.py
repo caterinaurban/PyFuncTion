@@ -1,5 +1,4 @@
-# expected: -domain octagons -angelic d
-# result: UNKNOWN
+# expected UNKNOWN: -domain octagons -angelic d
 # whatever the program picks, x never decreases
 import random
 

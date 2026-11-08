@@ -1,5 +1,4 @@
-# expected: -domain octagons -angelic x
-# result: UNKNOWN
+# expected UNKNOWN: -domain octagons -angelic x
 # Projecting each decision node separately (Algorithm 1 of the VMCAI 2026
 # paper) is unsound: the loop exits iff -y <= x <= z; projecting x out of
 # x <= z and out of x + y >= 0 separately gives true for both, i.e. some x

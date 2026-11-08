@@ -1,4 +1,4 @@
-# result: UNKNOWN
+# expected UNKNOWN
 def countdown(n):
     while n > 0:
         n = n + 1

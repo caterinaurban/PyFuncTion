@@ -1,5 +1,4 @@
-# expected: -domain boxes -angelic x -precondition "y + z >= 0"
-# result: UNKNOWN
+# expected UNKNOWN: -domain boxes -angelic x -precondition "y + z >= 0"
 # A choice whose bounds are relational: some x in [0, y + z] satisfies x >= 5
 # iff y + z >= 5, which boxes cannot represent. Over-approximating it (by
 # top) would claim termination for every y + z >= 0, but for y = z = 0 the

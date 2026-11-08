@@ -1,5 +1,4 @@
-# expected: -domain octagons -angelic x -precondition "y + 2 * z >= 0"
-# result: UNKNOWN
+# expected UNKNOWN: -domain octagons -angelic x -precondition "y + 2 * z >= 0"
 # As range_boxes.py with octagons: some x in [0, y + 2z] satisfies x >= 5
 # iff y + 2z >= 5, which is not an octagonal constraint. For y = z = 0 the
 # only choice is x = 0.

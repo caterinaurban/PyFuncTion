@@ -1,5 +1,4 @@
-# expected: -refine
-# result: UNKNOWN
+# expected UNKNOWN: -refine
 # FuncTion (OCaml) proves the C version only because its inliner turns the
 # returns inside get_step into program exits. With the correct semantics,
 # proving termination requires the disjunctive invariant x > 0 => y > 0,

@@ -1,5 +1,4 @@
-# expected: -domain polyhedra -seed "s >= 1"
-# result: UNKNOWN
+# expected UNKNOWN: -domain polyhedra -seed "s >= 1"
 # same as step.py, without -angelic: the step s may be <= 0
 import random
 

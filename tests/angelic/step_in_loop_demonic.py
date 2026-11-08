@@ -1,5 +1,4 @@
-# expected: -domain octagons
-# result: UNKNOWN
+# expected UNKNOWN: -domain octagons
 # same as step_in_loop.py, without -angelic: d may always be <= 0
 import random
 

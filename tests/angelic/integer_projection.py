@@ -1,5 +1,4 @@
-# expected: -domain polyhedra -angelic x
-# result: UNKNOWN
+# expected UNKNOWN: -domain polyhedra -angelic x
 # 2x == y has no integer solution x for odd y: the projection of x over the
 # rationals (true) must not be used
 def main(y):

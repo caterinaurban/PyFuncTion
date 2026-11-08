@@ -1,5 +1,4 @@
-# expected: -domain polyhedra
-# result: UNKNOWN
+# expected UNKNOWN: -domain polyhedra
 # FuncTion issue #21 (https://github.com/caterinaurban/function/issues/21):
 
 
