@@ -1233,7 +1233,7 @@ class DecisionTree:
         holds. With mask, the ⊥_F leaves of mask stay ⊥_F."""
         F = self.F
         src = t if mask is None else mask
-        r = self.filter(src, e, under=True)
+        r = self.filter(src, e, under=True)     # unsound with under=False (see tests/ctl/underapproximation.py with -domain boxes)
 
         def zero(f):
             return Leaf(f) if mask is not None and F.is_bot(f) else Leaf(F.reset(f))
