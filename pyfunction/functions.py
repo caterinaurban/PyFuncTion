@@ -619,20 +619,60 @@ class Ordinals:
             return Ord(f, ff)
         return Ord(f)
 
+    # def extend(self, b1, b2, o1, o2):
+    #     """The extrapolation ▾_F applied to each coefficient."""
+    #     F = self.F
+    #     f = F.extend(b1, b2, o1.f, o2.f)
+    #     if F.defined(f):
+    #         ff1, ff2 = list(o1.ff), list(o2.ff)
+    #         ff = []
+    #         while ff1 or ff2:
+    #             x = ff1.pop(0) if ff1 else F.zero()
+    #             y = ff2.pop(0) if ff2 else F.zero()
+    #             ff.append(F.extend(b1, b2, x, y))
+    #         if any(F.is_top(x) for x in ff):
+    #             return Ord(F.top())
+    #         return Ord(f, ff)
+    #     return Ord(f)
+
     def extend(self, b1, b2, o1, o2):
-        """The extrapolation ▾_F applied to each coefficient."""
+        """The extrapolation ▾_F applied to each coefficient, in ascending
+        powers of ω. As in join, a coefficient whose extrapolation is
+        undefined becomes 0 and 1 is carried to the next power of ω, instead
+        of yielding ⊤_W (FuncTion's extend, in the comment above); the result
+        is ⊤_W beyond ω^max."""
         F = self.F
-        f = F.extend(b1, b2, o1.f, o2.f)
-        if F.defined(f):
-            ff1, ff2 = list(o1.ff), list(o2.ff)
-            ff = []
+
+        def aux(i, ff1, ff2):
+            # the coefficients of the powers of ω > 0, with incoming carry i
+            ff1, ff2 = list(ff1), list(ff2)
+            out = []
             while ff1 or ff2:
                 x = ff1.pop(0) if ff1 else F.zero()
                 y = ff2.pop(0) if ff2 else F.zero()
-                ff.append(F.extend(b1, b2, x, y))
-            if any(F.is_top(x) for x in ff):
+                z = F.extend(b1, b2, x, y)
+                if F.defined(z):
+                    out.append(F.successor(z) if i else z)
+                    i = 0
+                else:
+                    out.append(F.successor(F.zero()) if i else F.zero())
+                    i = 1
+            if i:
+                out.append(F.successor(F.zero()))
+            return out
+
+        f = F.extend(b1, b2, o1.f, o2.f)  # coefficient of ω^0
+        if F.defined(f):
+            ff = aux(0, o1.ff, o2.ff)
+            if len(ff) > self.max:
                 return Ord(F.top())
             return Ord(f, ff)
+        if F.defined(o1.f) and F.defined(o2.f):
+            # the coefficient of ω^0 has no affine extrapolation: 0, and carry 1 to ω
+            ff = aux(1, o1.ff, o2.ff)
+            if len(ff) > self.max:
+                return Ord(F.top())
+            return Ord(F.zero(), ff)
         return Ord(f)
 
     def reset(self, o):
