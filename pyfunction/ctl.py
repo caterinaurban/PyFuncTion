@@ -337,8 +337,9 @@ class CTLAnalysis(TerminationAnalysis):
                 h = s.label
                 out_exit = self._filter(q, p, negate(s.cond))
                 self._rec('exit', h, out_exit)
-                ci = inv[h]
-                self._rec('iteration', h, ci, n=1, title='iterate 1 = the tree of the property (start)')
+                ci = D.split(inv[h], self.seeds) if self.seeds else inv[h]
+                self._rec('iteration', h, ci, n=1, seeded=bool(self.seeds),
+                          title='iterate 1 = the tree of the property (start%s)' % (', split on the seeds' if self.seeds else ''))
                 out_enter = self._filter(q, blk(ci, s.body), s.cond)
                 n = 1
                 while True:

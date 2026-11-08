@@ -44,8 +44,8 @@ def main(argv=None):
     ap.add_argument('-precondition', '--precondition', default=None,
                     help='precondition assumed at the program entry (a Python boolean expression)')
     ap.add_argument('-seed', '--seed', action='append', default=[],
-                    help='constraints to split the decision trees on from the start, e.g. "x >= 0 and x - y >= 1" '
-                    '(each comparison is a seed; the domain widening never removes them; can be repeated)')
+                    help='constraints to split the decision trees on at the start of every fixpoint, e.g. "x >= 0 and x - y >= 1" '
+                    '(each comparison is a seed; the widening and the dual widening never remove them; can be repeated)')
     ap.add_argument('-angelic', '--angelic', action='append', default=[], metavar='X,Y',
                     help='variables whose non-deterministic values (x = random.randint(a, b), x = input(), ...) '
                     'are picked by the program instead of the environment: termination is then proven '

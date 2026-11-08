@@ -33,9 +33,11 @@ Options (same names as FuncTion; `--name` also works):
     -retrybwd 5
     -refine                            reduce the backward analysis to the reachable states
     -precondition "x > 0"              precondition at the entry (a Python expression)
-    -seed "x >= 0 and x - y >= 1"      split the decision trees on these constraints from the
-                                       start: the domain widening never removes them (each
-                                       comparison is a seed; the option can be repeated)
+    -seed "x >= 0 and x - y >= 1"      split the decision trees on these constraints at the
+                                       start of every fixpoint (termination and all the CTL
+                                       operators that iterate); the widening and the dual
+                                       widening never remove them (each comparison is a seed;
+                                       the option can be repeated)
     -ctl "AG{AF{x == 0}}"              prove a CTL property instead of termination
     -ctl_existential_equivalence       CTL: prove EF, EG, EX as NOT AG NOT, NOT AF NOT, NOT AX NOT
     -angelic d,s                       the non-deterministic values of these variables are

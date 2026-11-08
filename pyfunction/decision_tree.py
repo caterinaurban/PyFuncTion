@@ -143,6 +143,15 @@ class DecisionTree:
             t = Node(c, nc, t, t) if nc <= c else Node(nc, c, t, t)
         return DT(domain, self.sort_tree(t))
 
+    def split(self, t, cs):
+        """t split on the constraints cs (the seeds), with the same leaves:
+        the start of the AG and EG iterations with option -seed. The dual
+        widening keeps the constraints of the previous iterate (left
+        unification), so a piece of the partition that is stable can be kept
+        apart from a piece that keeps shrinking."""
+        s = self.seeded(cs, t.domain)
+        return DT(t.domain, self._pairs(t.tree, s.tree, lambda f1, f2: Leaf(f1)))
+
     def zero(self, domain=None):
         """LEAF: λX1,...,Xk. 0, the ranking function at the program exit."""
         return DT(domain, Leaf(self.F.zero()))
